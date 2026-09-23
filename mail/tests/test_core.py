@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 import sqlite3
+import struct
 import sys
 import tempfile
 import threading
@@ -75,6 +76,13 @@ class FakeImap:
 
 
 class CoreTests(unittest.TestCase):
+    def test_store_branding_assets(self):
+        addon = Path(__file__).parents[1]
+        for filename, expected_size in (("icon.png", (128, 128)), ("logo.png", (500, 200))):
+            payload = (addon / filename).read_bytes()
+            self.assertEqual(payload[:8], b"\x89PNG\r\n\x1a\n")
+            self.assertEqual(struct.unpack(">II", payload[16:24]), expected_size)
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(dir=Path(__file__).parent)
         self.addCleanup(self.temp.cleanup)

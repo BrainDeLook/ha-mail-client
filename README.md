@@ -1,33 +1,74 @@
-# Home Mail for Home Assistant
+<p align="center">
+  <img src="mail/logo.png" width="500" alt="Home Mail">
+</p>
 
-Independent, lightweight Gmail client for Home Assistant Ingress. It is still experimental, not a Tachyon fork. The existing Tachyon add-on is unaffected.
+<h1 align="center">Home Mail для Home Assistant</h1>
 
-## Install
+<p align="center">Лёгкий почтовый клиент для Gmail прямо в боковой панели Home Assistant.</p>
 
-Add `https://github.com/BrainDeLook/ha-mail-client` as a custom Home Assistant add-on repository, install **Home Mail**, then enter the Gmail address and its **app password** in the add-on configuration. Start the add-on and open it from the HA sidebar. Do not enter the normal Google account password. No second login or in-app administrator panel is used.
+<p align="center">
+  <a href="https://github.com/BrainDeLook/ha-mail-client/actions/workflows/build.yaml"><img src="https://github.com/BrainDeLook/ha-mail-client/actions/workflows/build.yaml/badge.svg" alt="Сборка"></a>
+  <a href="https://github.com/BrainDeLook/ha-mail-client/releases"><img src="https://img.shields.io/github/v/release/BrainDeLook/ha-mail-client?include_prereleases&label=version" alt="Версия"></a>
+</p>
 
-For Raspberry Pi 5, the published `aarch64` image must be available before installation. The repository's build workflow publishes the exact `0.3.4` tag used by `mail/config.yaml`.
+Home Mail — самостоятельный экспериментальный аддон, не форк Tachyon или Thunderbird. Веб-интерфейс открывается через Ingress: отдельный порт наружу не публикуется, второй вход внутри приложения не нужен. Настройки Gmail задаются на странице конфигурации аддона.
 
-## Features
+## Возможности
 
-- Ingress-only web interface, no published host port, full-screen HA panel with a Home Assistant sidebar button.
-- IMAP sync of the newest 50 messages per standard Gmail folder (configurable 10–200); custom folders load when opened. Increasing the limit backfills missing older messages on the next sync without re-downloading cached bodies.
-- Persistent SQLite cache in `/data/mail.db`, reused after add-on restarts. Account changes clear the previous account's cached mail.
-- Background polling continues while the web panel is closed. Normal polls fetch only UIDs newer than the last cached UID; a metadata-only reconciliation every six hours detects deletions and flag changes without downloading old message bodies again. Open panels check the cache revision every eight seconds and refresh only when mail changes.
-- Inbox, Sent, Drafts, Spam and Trash where Gmail exposes those folders; local search of cached messages; read/unread and star flags.
-- Compose and reply through Gmail SMTP. Settings, including app password and sync interval, live exclusively in the HA add-on configuration.
-- Gmail special folders and IMAP modified UTF-7 names are displayed in readable form.
-- Sanitized HTML mail with basic sender formatting, cached inline images/audio/video and downloadable cached attachments. External HTTPS media loads by default; set `show_external_media: false` to block it until clicking **Show external media** for a message. Remote images can reveal your IP address to the sender. Email scripts, forms and frames are blocked.
-- The add-on settings provide a `theme` dropdown: `system` (follows the device), `light`, `dark`, or `ha_dark` (Home Assistant's default dark palette). `ha_dark` matches the default HA colors, not an installed custom HA theme.
-- On mobile, tap the shaded area outside the folder panel (or press Escape) to close it.
-- `log_level` selects `error`, `warning`, `info` (default) or `debug`. Routine HTTP requests and empty sync polls appear only at `debug`; request query strings and message contents are not logged.
+- Почта в боковой панели HA, полноэкранный режим и кнопка возврата к панели HA; интерфейс пригоден для телефона.
+- Фоновая синхронизация IMAP и локальный SQLite-кэш, который сохраняется после перезапуска.
+- Лимит 10–200 последних писем **на папку**. При увеличении лимита недостающие старые письма докачиваются без повторной загрузки уже сохранённых.
+- Входящие, отправленные, черновики, спам, корзина и доступные ярлыки Gmail; локальный поиск по закэшированным письмам.
+- Написание и ответ через SMTP; отметки «прочитано» и «избранное».
+- HTML-письма с очисткой опасного содержимого, встроенные изображения и медиа, сохранённые вложения.
+- Темы `system`, `light`, `dark`, `ha_dark` и настраиваемый уровень журнала.
 
-## Current limitations
+## Установка
 
-This version has no attachment sending, Gmail OAuth, draft editing, message move/delete, or remote search of older messages. Messages larger than 12 MB and MIME parts larger than 10 MB are not cached. The interface shows only cached messages and may remain empty until the first sync finishes. Live behavior on Home Assistant/Gmail needs user verification; automated tests use a fake IMAP server.
+1. В Home Assistant откройте **Настройки → Дополнения → Магазин дополнений → ⋮ → Репозитории** и добавьте `https://github.com/BrainDeLook/ha-mail-client`.
+2. Установите **Home Mail**. Поддерживаются `aarch64` (в том числе Raspberry Pi 5) и `amd64`.
+3. В конфигурации введите Gmail-адрес в `gmail_email` и **пароль приложения Google** в `gmail_app_password`. Обычный пароль аккаунта не подходит; сюда или в issue пароль не присылайте.
+4. Сохраните настройки, запустите аддон и откройте **Mail** в боковой панели. Первая загрузка писем может занять время.
 
-The add-on relies on Home Assistant Ingress authentication; do not expose its internal port directly. Its SQLite cache and Home Assistant options, including the app password, are part of the add-on's cold backup. Treat backups accordingly.
+Для [пароля приложения Google](https://support.google.com/accounts/answer/2461835) должна быть включена двухэтапная аутентификация; доступность этой функции зависит от типа и политики аккаунта. OAuth пока не поддерживается.
 
-## Development
+## Настройки
 
-Run `python3 -m unittest discover -s mail/tests -v` and `node --check mail/app/app.js`. The app uses the Python standard library only.
+| Параметр | По умолчанию | Что делает |
+| --- | --- | --- |
+| `gmail_email` | пусто | Gmail-адрес почтового ящика. |
+| `gmail_app_password` | пусто | Пароль приложения Google; хранится в настройках аддона HA. |
+| `sync_interval_minutes` | `5` | Период фоновой проверки, от 1 до 60 минут. |
+| `cache_per_folder` | `50` | Не более 10–200 последних писем в каждой синхронизированной папке. |
+| `theme` | `system` | Системная, светлая, тёмная или `ha_dark` — цвета стандартной тёмной темы HA. Пользовательскую тему HA не копирует. |
+| `show_external_media` | `true` | Разрешает внешние изображения и медиа в письмах; отключение повышает приватность. |
+| `log_level` | `info` | `error`, `warning`, `info`, `debug`. HTTP-запросы видны только при `debug`, без параметров URL. |
+
+Настройки меняются на странице аддона; после сохранения перезапустите его. Кэш лежит в `/data/mail.db` и входит в холодную резервную копию аддона. Пароль приложения в настройках HA также может попасть в резервную копию — храните её защищённо. При смене Gmail-адреса кэш прежнего аккаунта очищается.
+
+## Как работает кэш
+
+Аддон периодически проверяет новые UID и обычно скачивает только новые письма. Раз в шесть часов он сверяет метаданные, чтобы заметить изменения флагов и удаления. Увеличение `cache_per_folder` запускает разовый добор более старых писем; уменьшение удаляет лишнее **только из локального кэша**, не из Gmail. Списки показывают только уже сохранённые письма; папки, не входящие в стандартный набор, подгружаются при открытии.
+
+Письма больше 12 МБ и отдельные части письма больше 10 МБ не кэшируются. Внешние изображения могут сообщить отправителю ваш IP-адрес. Скрипты, формы и вложенные фреймы в HTML-письмах блокируются.
+
+## Категории Gmail
+
+Разделения входящих на **Несортированные / Соцсети / Промоакции / Оповещения** пока нет. Оно технически возможно через [Gmail IMAP `X-GM-RAW`](https://developers.google.com/workspace/gmail/imap/imap-extensions) с [запросами](https://support.google.com/mail/answer/7190) `category:primary`, `category:social`, `category:promotions`, `category:updates`; обычный список IMAP-папок этих вкладок не содержит. Для точного повторения Gmail нужно добавить запрос категорий и их привязку к локально закэшированным UID. Это отдельная будущая функция, не заявленная как готовая.
+
+## Ограничения и помощь
+
+Пока нет OAuth, отправки вложений, редактирования черновиков, перемещения/удаления писем и поиска по письмам, которые не попали в локальный кэш. Если список пуст, проверьте адрес, пароль приложения, журнал аддона и дождитесь первой синхронизации. Для диагностики можно временно выбрать `log_level: debug`; не публикуйте пароли и данные писем.
+
+Образы публикуются с тегом, равным версии в `mail/config.yaml`. Проверки сборки и доступности образа не заменяют проверки на вашем Home Assistant и аккаунте Gmail. Сообщить о проблеме можно в [Issues](https://github.com/BrainDeLook/ha-mail-client/issues), приложив версию аддона, архитектуру и обезличенный фрагмент журнала.
+
+## Разработка
+
+Приложение написано на Python без сторонних runtime-зависимостей; фронтенд — HTML/CSS/JavaScript. Локальная проверка:
+
+```sh
+python3 -m unittest discover -s mail/tests -v
+node --check mail/app/app.js
+```
+
+Документация для магазина HA: [описание](mail/README.md), [подробности](mail/DOCS.md), [история изменений](mail/CHANGELOG.md).
