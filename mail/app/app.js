@@ -242,7 +242,7 @@
     $('remote-button').hidden = !message.html || Boolean(message.remoteLoaded);
     if (message.html) {
       const remote = message.remoteLoaded ? 'http: https: ' : '';
-      frame.srcdoc = `<meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'none'; img-src 'self' ${remote}data:; media-src 'self' ${remote}data:; style-src 'unsafe-inline'; frame-src 'none'; form-action 'none'"><style>html,body{overflow:hidden}body{font:14px/1.6 Arial,sans-serif;color:#202124;background:#fff;margin:0;word-break:normal;overflow-wrap:normal}img,video{max-width:100%}table{max-width:100%}a{color:#1a73e8}</style>${message.html}`;
+      frame.srcdoc = `<meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'none'; img-src 'self' ${remote}data:; media-src 'self' ${remote}data:; style-src 'unsafe-inline'; frame-src 'none'; form-action 'none'"><style>html,body{overflow:hidden;touch-action:pan-y}body{font:14px/1.6 Arial,sans-serif;color:#202124;background:#fff;margin:0;word-break:normal;overflow-wrap:normal}img,video{max-width:100%}table{max-width:100%}a{color:#1a73e8}</style>${message.html}`;
       frame.addEventListener('load', () => {
         try {
           const doc = frame.contentDocument;
@@ -413,10 +413,10 @@
       }
       const touch = event.touches[0];
       start = {x: touchX(touch), y: touchY(touch), time: Date.now(),
-        edge: touch.clientX <= 96, dragging: false, distance: 0};
+        dragging: false, distance: 0};
     }, {passive: true});
     target.addEventListener('touchmove', (event) => {
-      if (!start?.edge || event.touches.length !== 1) return;
+      if (!start || event.touches.length !== 1) return;
       const dx = touchX(event.touches[0]) - start.x;
       const dy = touchY(event.touches[0]) - start.y;
       if (!start.dragging && Math.abs(dy) > 12 && Math.abs(dy) > Math.abs(dx)) {

@@ -92,9 +92,20 @@ assert.equal(readingPane.style.transform, 'translate3d(0px,0,0)', 'short swipe s
 timers.pop()();
 assert.equal(shell.classList.contains('show-reader'), true, 'short swipe keeps the message open');
 
+let prevented = false;
 readingPane.fire('touchstart', {touches: [{clientX: 180, clientY: 200}]});
+readingPane.fire('touchmove', {touches: [{clientX: 300, clientY: 207}], preventDefault() { prevented = true; }});
+assert.equal(prevented, true, 'swipe from the middle owns horizontal movement');
+assert.equal(readingPane.style.transform, 'translate3d(120px,0,0)', 'middle swipe moves the reader');
 readingPane.fire('touchend', {changedTouches: [{clientX: 310, clientY: 207}]});
-assert.equal(shell.classList.contains('show-reader'), true, 'horizontal swipe away from edge does not navigate back');
+timers.pop()();
+assert.equal(shell.classList.contains('show-reader'), false, 'swipe from the middle navigates back');
+
+openFakeMessage();
+readingPane.fire('touchstart', {touches: [{clientX: 180, clientY: 200}]});
+readingPane.fire('touchmove', {touches: [{clientX: 188, clientY: 280}], preventDefault() { throw Error('vertical scroll prevented'); }});
+readingPane.fire('touchend', {changedTouches: [{clientX: 310, clientY: 280}]});
+assert.equal(shell.classList.contains('show-reader'), true, 'vertical movement from the middle still scrolls');
 
 async function startupFolder(defaultRole, folders) {
   const nodes = new Map();
