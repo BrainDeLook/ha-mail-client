@@ -313,7 +313,8 @@ class CoreTests(unittest.TestCase):
         self.assertNotIn("INBOX: '▣'", script)
         self.assertEqual((app / "icon.png").read_bytes(), (app.parent / "icon.png").read_bytes())
         config = (app.parent / "config.yaml").read_text(encoding="utf-8")
-        self.assertIn('stage: stable', config)
+        self.assertNotIn('stage: experimental', config)
+        self.assertNotIn('stage: stable', config)  # Home Assistant defaults to stable.
         self.assertIn('version: "1.0.0"', config)
 
     def test_mime_cid_image_is_cached(self):
