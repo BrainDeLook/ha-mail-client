@@ -1,18 +1,19 @@
 # Home Mail for Home Assistant
 
-Independent, lightweight Gmail client for Home Assistant Ingress. This is an **experimental first version**, not a Tachyon fork. The existing Tachyon add-on is unaffected.
+Independent, lightweight Gmail client for Home Assistant Ingress. It is still experimental, not a Tachyon fork. The existing Tachyon add-on is unaffected.
 
 ## Install
 
 Add `https://github.com/BrainDeLook/ha-mail-client` as a custom Home Assistant add-on repository, install **Home Mail**, then enter the Gmail address and its **app password** in the add-on configuration. Start the add-on and open it from the HA sidebar. Do not enter the normal Google account password. No second login or in-app administrator panel is used.
 
-For Raspberry Pi 5, the published `aarch64` image must be available before installation. The repository's build workflow publishes the exact `0.2.0` tag used by `mail/config.yaml`.
+For Raspberry Pi 5, the published `aarch64` image must be available before installation. The repository's build workflow publishes the exact `0.3.0` tag used by `mail/config.yaml`.
 
-## First-version features
+## Features
 
 - Ingress-only web interface, no published host port, full-screen HA panel with a Home Assistant sidebar button.
 - IMAP sync of the newest 50 messages per standard Gmail folder (configurable 10–200); custom folders load when opened.
 - Persistent SQLite cache in `/data/mail.db`, reused after add-on restarts. Account changes clear the previous account's cached mail.
+- Background polling continues while the web panel is closed. Normal polls fetch only UIDs newer than the last cached UID; a metadata-only reconciliation every six hours detects deletions and flag changes without downloading old message bodies again. Open panels check the cache revision every eight seconds and refresh only when mail changes.
 - Inbox, Sent, Drafts, Spam and Trash where Gmail exposes those folders; local search of cached messages; read/unread and star flags.
 - Compose and reply through Gmail SMTP. Settings, including app password and sync interval, live exclusively in the HA add-on configuration.
 - Gmail special folders and IMAP modified UTF-7 names are displayed in readable form.

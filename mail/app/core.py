@@ -95,7 +95,7 @@ def connect_db():
         CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS folders (
             name TEXT PRIMARY KEY, role TEXT NOT NULL, uidvalidity TEXT NOT NULL DEFAULT '',
-            label TEXT NOT NULL DEFAULT ''
+            label TEXT NOT NULL DEFAULT '', last_uid INTEGER NOT NULL DEFAULT 0
         );
         CREATE TABLE IF NOT EXISTS messages (
             folder TEXT NOT NULL, uid INTEGER NOT NULL, subject TEXT NOT NULL,
@@ -115,6 +115,8 @@ def connect_db():
     """)
     if "label" not in {row[1] for row in conn.execute("PRAGMA table_info(folders)")}:
         conn.execute("ALTER TABLE folders ADD COLUMN label TEXT NOT NULL DEFAULT ''")
+    if "last_uid" not in {row[1] for row in conn.execute("PRAGMA table_info(folders)")}:
+        conn.execute("ALTER TABLE folders ADD COLUMN last_uid INTEGER NOT NULL DEFAULT 0")
     if "raw_html" not in {row[1] for row in conn.execute("PRAGMA table_info(messages)")}:
         conn.execute("ALTER TABLE messages ADD COLUMN raw_html TEXT")
     conn.commit()
@@ -130,14 +132,26 @@ def get_meta(conn, key, default=""):
     return row[0] if row else default
 
 
+def bump_cache_revision(conn):
+    revision = int(get_meta(conn, "cache_revision", "0")) + 1
+    set_meta(conn, "cache_revision", revision)
+    return revision
+
+
+def reconcile_key(folder):
+    return "reconcile:" + hashlib.sha256(folder.encode("utf-8")).hexdigest()[:20]
+
+
 def ensure_account(conn, address):
     digest = hashlib.sha256(address.encode("utf-8")).hexdigest()
     previous = get_meta(conn, "account")
     if previous != digest:
         conn.execute("DELETE FROM messages")
         conn.execute("DELETE FROM folders")
+        conn.execute("DELETE FROM meta WHERE key LIKE 'reconcile:%'")
         set_meta(conn, "account", digest)
         set_meta(conn, "last_sync", "")
+        bump_cache_revision(conn)
         conn.commit()
 
 
@@ -376,28 +390,7 @@ def _literal(response):
     raise RuntimeError("Gmail did not return the message body")
 
 
-def sync_folder(imap, conn, folder, role, label, limit):
-    status, count_data = imap.select('"' + folder.replace('"', '\\"') + '"', readonly=True)
-    if status != "OK":
-        raise RuntimeError("Cannot select Gmail folder")
-    count = int(count_data[0] or 0)
-    validity_data = imap.response("UIDVALIDITY")[1]
-    validity = validity_data[0].decode("ascii") if validity_data and validity_data[0] else ""
-    if not validity:
-        raise RuntimeError("Gmail did not report UIDVALIDITY")
-    old = conn.execute("SELECT uidvalidity FROM folders WHERE name=?", (folder,)).fetchone()
-    if old and old[0] != validity:
-        conn.execute("DELETE FROM messages WHERE folder=?", (folder,))
-    conn.execute("INSERT INTO folders(name,role,uidvalidity,label) VALUES(?,?,?,?) ON CONFLICT(name) DO UPDATE SET role=excluded.role,uidvalidity=excluded.uidvalidity,label=excluded.label", (folder, role, validity, label))
-    conn.commit()
-    if count == 0:
-        conn.execute("DELETE FROM messages WHERE folder=?", (folder,))
-        conn.commit()
-        return 0
-    start = max(1, count - limit + 1)
-    status, listing = imap.fetch(f"{start}:{count}", "(UID FLAGS RFC822.SIZE)")
-    if status != "OK":
-        raise RuntimeError("Cannot list Gmail messages")
+def _message_entries(listing):
     entries = []
     for item in listing or []:
         info = item[0] if isinstance(item, tuple) else item
@@ -410,14 +403,79 @@ def sync_folder(imap, conn, folder, role, label, limit):
             entries.append((int(uid_match.group(1)),
                             [value.decode("ascii", "replace") for value in (flags_match.group(1).split() if flags_match else [])],
                             int(size_match.group(1)) if size_match else 0))
-    if count and not entries:
-        raise RuntimeError("Gmail returned an empty UID listing")
+    return entries
+
+
+def _prune_cached(conn, folder, limit):
+    return conn.execute("""DELETE FROM messages WHERE folder=? AND uid NOT IN
+        (SELECT uid FROM messages WHERE folder=? ORDER BY uid DESC LIMIT ?)""",
+                        (folder, folder, limit)).rowcount > 0
+
+
+def sync_folder(imap, conn, folder, role, label, limit, reconcile=False):
+    status, count_data = imap.select('"' + folder.replace('"', '\\"') + '"', readonly=True)
+    if status != "OK":
+        raise RuntimeError("Cannot select Gmail folder")
+    count = int(count_data[0] or 0)
+    validity_data = imap.response("UIDVALIDITY")[1]
+    validity = validity_data[0].decode("ascii") if validity_data and validity_data[0] else ""
+    if not validity:
+        raise RuntimeError("Gmail did not report UIDVALIDITY")
+    old = conn.execute("SELECT uidvalidity,last_uid FROM folders WHERE name=?", (folder,)).fetchone()
+    changed = bool(old and old[0] != validity)
+    if old and old[0] != validity:
+        conn.execute("DELETE FROM messages WHERE folder=?", (folder,))
+        conn.execute("UPDATE folders SET last_uid=0 WHERE name=?", (folder,))
+    conn.execute("INSERT INTO folders(name,role,uidvalidity,label) VALUES(?,?,?,?) ON CONFLICT(name) DO UPDATE SET role=excluded.role,uidvalidity=excluded.uidvalidity,label=excluded.label", (folder, role, validity, label))
+    conn.commit()
+    last_uid = old[1] if old and old[0] == validity else 0
+    if count == 0:
+        changed |= conn.execute("DELETE FROM messages WHERE folder=?", (folder,)).rowcount > 0
+        conn.execute("UPDATE folders SET last_uid=0 WHERE name=?", (folder,))
+        conn.commit()
+        return 0, changed
+    full_scan = not last_uid or reconcile
+    if full_scan:
+        start = max(1, count - limit + 1)
+        status, listing = imap.fetch(f"{start}:{count}", "(UID FLAGS RFC822.SIZE)")
+        if status != "OK":
+            raise RuntimeError("Cannot list Gmail messages")
+        entries = _message_entries(listing)
+        if not entries:
+            raise RuntimeError("Gmail returned an empty UID listing")
+        latest_uid = max(uid for uid, _, _ in entries)
+    else:
+        next_data = imap.response("UIDNEXT")[1]
+        next_uid = int(next_data[0]) if next_data and next_data[0] else 0
+        if next_uid and next_uid <= last_uid + 1:
+            changed |= _prune_cached(conn, folder, limit)
+            conn.commit()
+            return 0, changed
+        status, matches = imap.uid("SEARCH", None, f"UID {last_uid + 1}:*")
+        if status != "OK":
+            raise RuntimeError("Cannot search new Gmail messages")
+        found = {int(value) for value in b" ".join(item for item in matches or [] if isinstance(item, bytes)).split()}
+        new_uids = sorted(uid for uid in found if uid > last_uid)
+        latest_uid = max(last_uid, next_uid - 1, new_uids[-1] if new_uids else last_uid)
+        if not new_uids:
+            changed |= _prune_cached(conn, folder, limit)
+            conn.execute("UPDATE folders SET last_uid=? WHERE name=?", (latest_uid, folder))
+            conn.commit()
+            return 0, changed
+        selected = new_uids[-limit:]
+        status, listing = imap.uid("FETCH", ",".join(str(uid) for uid in selected), "(UID FLAGS RFC822.SIZE)")
+        if status != "OK":
+            raise RuntimeError("Cannot list new Gmail messages")
+        entries = [entry for entry in _message_entries(listing) if entry[0] > last_uid]
     wanted = [entry[0] for entry in entries]
     fetched = 0
     for uid, flags, size in entries:
-        exists = conn.execute("SELECT raw_html FROM messages WHERE folder=? AND uid=?", (folder, uid)).fetchone()
+        exists = conn.execute("SELECT raw_html,flags FROM messages WHERE folder=? AND uid=?", (folder, uid)).fetchone()
         if exists and exists[0] is not None:
-            conn.execute("UPDATE messages SET flags=? WHERE folder=? AND uid=?", (" ".join(flags), folder, uid))
+            new_flags = " ".join(flags)
+            if exists[1] != new_flags:
+                conn.execute("UPDATE messages SET flags=? WHERE folder=? AND uid=?", (new_flags, folder, uid))
+                changed = True
             continue
         if size > MAX_MAIL_BYTES:
             continue
@@ -430,11 +488,15 @@ def sync_folder(imap, conn, folder, role, label, limit):
             conn.execute("INSERT INTO parts(folder,uid,part_id,content_type,filename,cid,content) VALUES(?,?,?,?,?,?,?)",
                          (folder, uid, index, content_type, filename, cid, content))
         fetched += 1
-    if wanted:
+        changed = True
+    if full_scan and wanted:
         placeholders = ",".join("?" for _ in wanted)
-        conn.execute(f"DELETE FROM messages WHERE folder=? AND uid NOT IN ({placeholders})", [folder, *wanted])
+        changed |= conn.execute(f"DELETE FROM messages WHERE folder=? AND uid NOT IN ({placeholders})", [folder, *wanted]).rowcount > 0
+    else:
+        changed |= _prune_cached(conn, folder, limit)
+    conn.execute("UPDATE folders SET last_uid=? WHERE name=?", (latest_uid, folder))
     conn.commit()
-    return fetched
+    return fetched, changed
 
 
 def sync_all(cfg, requested_folder=None):
@@ -450,6 +512,13 @@ def sync_all(cfg, requested_folder=None):
             raise RuntimeError("Cannot list Gmail folders")
         folders = parse_folders(lines)
         with closing(connect_db()) as conn:
+            old_folders = {row["name"]: (row["role"], row["label"])
+                           for row in conn.execute("SELECT name,role,label FROM folders")}
+            new_folders = {name: (role, label) for name, role, label in folders}
+            cache_changed = old_folders != new_folders
+            for removed in old_folders.keys() - new_folders.keys():
+                conn.execute("DELETE FROM messages WHERE folder=?", (removed,))
+                conn.execute("DELETE FROM folders WHERE name=?", (removed,))
             for folder, role, label in folders:
                 conn.execute("INSERT INTO folders(name,role,label) VALUES(?,?,?) ON CONFLICT(name) DO UPDATE SET role=excluded.role,label=excluded.label", (folder, role, label))
             conn.commit()
@@ -458,10 +527,21 @@ def sync_all(cfg, requested_folder=None):
                 raise ValueError("Unknown folder")
             total = 0
             for name, role, label in target:
-                total += sync_folder(imap, conn, name, role, label, cfg["limit"])
-                set_meta(conn, "last_sync", datetime.now(timezone.utc).isoformat())
-                set_meta(conn, "last_error", "")
-                conn.commit()
+                key = reconcile_key(name)
+                try:
+                    reconcile = (datetime.now(timezone.utc) - datetime.fromisoformat(get_meta(conn, key))).total_seconds() >= 6 * 3600
+                except ValueError:
+                    reconcile = True
+                fetched, changed = sync_folder(imap, conn, name, role, label, cfg["limit"], reconcile)
+                total += fetched
+                cache_changed |= changed
+                if reconcile:
+                    set_meta(conn, key, datetime.now(timezone.utc).isoformat())
+            set_meta(conn, "last_sync", datetime.now(timezone.utc).isoformat())
+            set_meta(conn, "last_error", "")
+            if cache_changed:
+                bump_cache_revision(conn)
+            conn.commit()
             return total
     finally:
         try:
@@ -508,6 +588,7 @@ def set_flag(cfg, folder, uid, flag, enabled):
                 flags = set(row[0].split())
                 flags.add(flag) if enabled else flags.discard(flag)
                 conn.execute("UPDATE messages SET flags=? WHERE folder=? AND uid=?", (" ".join(sorted(flags)), folder, uid))
+                bump_cache_revision(conn)
                 conn.commit()
     finally:
         try:

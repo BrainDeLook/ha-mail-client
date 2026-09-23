@@ -10,6 +10,7 @@ import queue
 import sqlite3
 import smtplib
 import threading
+import time
 from contextlib import closing
 from urllib.parse import parse_qs, quote, urlsplit
 
@@ -18,20 +19,47 @@ import core
 
 ROOT = Path(__file__).parent
 SYNC_QUEUE = queue.Queue(maxsize=5)
-SYNC_STATE = {"running": False}
+SYNC_STATE = {"running": False, "folder": None}
+SYNC_PENDING = set()
 SYNC_LOCK = threading.Lock()
 MAX_REQUEST = 600_000
 
 
+def enqueue_sync(folder):
+    with SYNC_LOCK:
+        if folder in SYNC_PENDING or (SYNC_STATE["running"] and SYNC_STATE["folder"] == folder):
+            return False
+        try:
+            SYNC_QUEUE.put_nowait(folder)
+        except queue.Full:
+            return False
+        SYNC_PENDING.add(folder)
+        return True
+
+
 def sync_worker():
-    requested_folder = None
+    next_full = 0.0
+    failures = 0
     while True:
+        now = time.monotonic()
+        if now >= next_full:
+            requested_folder, periodic = None, True
+        else:
+            try:
+                requested_folder = SYNC_QUEUE.get(timeout=next_full - now)
+            except queue.Empty:
+                continue
+            periodic = False
+            with SYNC_LOCK:
+                SYNC_PENDING.discard(requested_folder)
         try:
             cfg = core.options()
             with SYNC_LOCK:
                 SYNC_STATE["running"] = True
+                SYNC_STATE["folder"] = requested_folder
             count = core.sync_all(cfg, requested_folder)
             print(f"[INFO] Gmail sync: {count} new messages", flush=True)
+            failures = 0
         except (FileNotFoundError, json.JSONDecodeError, ValueError, OSError,
                 imaplib.IMAP4.error, RuntimeError, sqlite3.Error) as exc:
             if isinstance(exc, imaplib.IMAP4.error):
@@ -43,6 +71,7 @@ def sync_worker():
             else:
                 message = str(exc)
             print(f"[WARN] Gmail sync: {message}", flush=True)
+            failures += 1
             try:
                 with closing(core.connect_db()) as conn:
                     core.set_meta(conn, "last_error", message)
@@ -52,18 +81,18 @@ def sync_worker():
         finally:
             with SYNC_LOCK:
                 SYNC_STATE["running"] = False
-        try:
-            timeout = core.options()["interval"] * 60
-        except (OSError, ValueError, json.JSONDecodeError):
-            timeout = 300
-        try:
-            requested_folder = SYNC_QUEUE.get(timeout=timeout)
-        except queue.Empty:
-            requested_folder = None
+                SYNC_STATE["folder"] = None
+        if periodic:
+            try:
+                interval = core.options()["interval"] * 60
+            except (OSError, ValueError, json.JSONDecodeError):
+                interval = 300
+            delay = interval if not failures else min(900, interval * 2 ** min(failures - 1, 3))
+            next_full = time.monotonic() + delay
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "HomeMail/0.2.3"
+    server_version = "HomeMail/0.3.0"
 
     def log_message(self, format, *args):
         # Avoid logging Ingress tokens, search terms or message details.
@@ -129,8 +158,10 @@ class Handler(BaseHTTPRequestHandler):
                                             "theme": cfg["theme"],
                                             "show_external_media": cfg["external_media"],
                                             "last_sync": core.get_meta(conn, "last_sync"),
+                                            "cache_revision": int(core.get_meta(conn, "cache_revision", "0")),
                                             "last_error": core.get_meta(conn, "last_error"),
-                                            "syncing": SYNC_STATE["running"]})
+                                            "syncing": SYNC_STATE["running"],
+                                            "sync_queued": SYNC_QUEUE.qsize() > 0})
                 if url.path == "/api/folders":
                     rows = conn.execute("""SELECT f.name,f.role,f.label,COUNT(m.uid) AS total,
                         COALESCE(SUM(CASE WHEN m.flags NOT LIKE '%\\Seen%' THEN 1 ELSE 0 END),0) AS unread
@@ -203,19 +234,12 @@ class Handler(BaseHTTPRequestHandler):
                     with closing(conn):
                         if not conn.execute("SELECT 1 FROM folders WHERE name=?", (folder,)).fetchone():
                             raise ValueError("Unknown folder")
-                try:
-                    SYNC_QUEUE.put_nowait(folder)
-                except queue.Full:
-                    pass
-                return self.reply(202, {"queued": True})
+                return self.reply(202, {"queued": enqueue_sync(folder)})
             cfg, conn = self.account_db()
             conn.close()
             if path == "/api/send":
                 core.send_mail(cfg, str(value.get("to", "")), str(value.get("subject", "")), str(value.get("body", "")))
-                try:
-                    SYNC_QUEUE.put_nowait(None)
-                except queue.Full:
-                    pass
+                enqueue_sync(None)
                 return self.reply(200, {"sent": True})
             if path == "/api/flag":
                 folder = str(value.get("folder", ""))

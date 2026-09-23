@@ -3,7 +3,9 @@
 import base64
 from email.message import EmailMessage
 import json
+import queue
 from contextlib import closing
+from datetime import datetime, timedelta, timezone
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 import sqlite3
@@ -27,6 +29,9 @@ SAMPLE = (b"From: Alice <alice@example.com>\r\nTo: Test <test@gmail.com>\r\n"
 
 class FakeImap:
     calls = 0
+    metadata_calls = 0
+    uids = [90393]
+    flags = "\\Seen"
 
     def __init__(self, *args, **kwargs):
         self.selected = ""
@@ -42,17 +47,28 @@ class FakeImap:
 
     def select(self, name, readonly=False):
         self.selected = name
-        return "OK", [b"1"]
+        return "OK", [str(len(self.uids)).encode()]
 
     def response(self, name):
-        return name, [b"123"]
+        return name, [str(max(self.uids) + 1).encode() if name == "UIDNEXT" else b"123"]
 
     def fetch(self, range_, query):
-        return "OK", [b"1 (UID 90393 FLAGS (\\Seen) RFC822.SIZE 300)"]
+        FakeImap.metadata_calls += 1
+        start, end = (int(value) for value in range_.split(":"))
+        return "OK", [f"1 (UID {uid} FLAGS ({self.flags}) RFC822.SIZE 300)".encode()
+                      for uid in self.uids[start - 1:end]]
 
     def uid(self, action, uid, query):
-        FakeImap.calls += 1
-        return "OK", [(b"1 (UID 90393 BODY[] {300}", SAMPLE)]
+        if action == "SEARCH":
+            minimum = int(query.split()[1].split(":")[0])
+            return "OK", [b" ".join(str(value).encode() for value in self.uids if value >= minimum)]
+        if query == "(BODY.PEEK[])":
+            FakeImap.calls += 1
+            return "OK", [(f"1 (UID {uid} BODY[] {{300}}".encode(), SAMPLE)]
+        FakeImap.metadata_calls += 1
+        requested = {int(value) for value in uid.split(",")}
+        return "OK", [f"1 (UID {value} FLAGS ({self.flags}) RFC822.SIZE 300)".encode()
+                      for value in self.uids if value in requested]
 
     def logout(self):
         pass
@@ -69,6 +85,9 @@ class CoreTests(unittest.TestCase):
         core.OPTIONS_FILE = self.data / "options.json"
         self.addCleanup(self.restore)
         FakeImap.calls = 0
+        FakeImap.metadata_calls = 0
+        FakeImap.uids = [90393]
+        FakeImap.flags = "\\Seen"
         self.cfg = {"email": "test@gmail.com", "password": "secret", "interval": 5, "limit": 50}
 
     def restore(self):
@@ -79,12 +98,71 @@ class CoreTests(unittest.TestCase):
             self.assertEqual(core.sync_all(self.cfg), 2)
             self.assertEqual(core.sync_all(self.cfg), 0)
         self.assertEqual(FakeImap.calls, 2)
+        self.assertEqual(FakeImap.metadata_calls, 2)
         with closing(core.connect_db()) as conn:
             row = conn.execute("SELECT body FROM messages WHERE folder='INBOX' AND uid=90393").fetchone()
             self.assertIn("Welcome home", row[0])
             self.assertNotIn("bad()", row[0])
             folders = conn.execute("SELECT role FROM folders ORDER BY name").fetchall()
             self.assertEqual({item[0] for item in folders}, {"INBOX", "SENT"})
+            self.assertEqual(core.get_meta(conn, "cache_revision"), "2")
+
+    def test_incremental_sync_fetches_only_new_uids(self):
+        with patch.object(core.imaplib, "IMAP4_SSL", FakeImap):
+            core.sync_all(self.cfg)
+            FakeImap.uids.append(90394)
+            self.assertEqual(core.sync_all(self.cfg), 2)
+            self.assertEqual(core.sync_all(self.cfg), 0)
+        self.assertEqual(FakeImap.calls, 4)
+        self.assertEqual(FakeImap.metadata_calls, 4)
+        with closing(core.connect_db()) as conn:
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM messages WHERE folder='INBOX'").fetchone()[0], 2)
+            self.assertEqual(conn.execute("SELECT last_uid FROM folders WHERE name='INBOX'").fetchone()[0], 90394)
+
+    def test_smaller_cache_limit_prunes_locally_without_refetch(self):
+        FakeImap.uids = [90393, 90394]
+        with patch.object(core.imaplib, "IMAP4_SSL", FakeImap):
+            core.sync_all(self.cfg)
+            smaller = {**self.cfg, "limit": 1}
+            self.assertEqual(core.sync_all(smaller), 0)
+        self.assertEqual(FakeImap.calls, 4)
+        self.assertEqual(FakeImap.metadata_calls, 2)
+        with closing(core.connect_db()) as conn:
+            self.assertEqual(conn.execute("SELECT uid FROM messages WHERE folder='INBOX'").fetchone()[0], 90394)
+
+    def test_sync_requests_are_coalesced(self):
+        with patch.object(server, "SYNC_QUEUE", queue.Queue(maxsize=2)), \
+             patch.object(server, "SYNC_PENDING", set()), \
+             patch.object(server, "SYNC_STATE", {"running": False, "folder": None}):
+            self.assertTrue(server.enqueue_sync("INBOX"))
+            self.assertFalse(server.enqueue_sync("INBOX"))
+            self.assertTrue(server.enqueue_sync(None))
+            self.assertFalse(server.enqueue_sync("[Gmail]/Sent Mail"))
+
+    def test_empty_remote_folder_clears_cached_messages(self):
+        with patch.object(core.imaplib, "IMAP4_SSL", FakeImap):
+            core.sync_all(self.cfg)
+            FakeImap.uids = []
+            self.assertEqual(core.sync_all(self.cfg), 0)
+        with closing(core.connect_db()) as conn:
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM messages").fetchone()[0], 0)
+            self.assertEqual(core.get_meta(conn, "cache_revision"), "3")
+
+    def test_rare_reconciliation_updates_flags_without_refetching_bodies(self):
+        with patch.object(core.imaplib, "IMAP4_SSL", FakeImap):
+            core.sync_all(self.cfg)
+            with closing(core.connect_db()) as conn:
+                old = (datetime.now(timezone.utc) - timedelta(hours=7)).isoformat()
+                core.set_meta(conn, core.reconcile_key("INBOX"), old)
+                core.set_meta(conn, core.reconcile_key("[Gmail]/Sent Mail"), old)
+                conn.commit()
+            FakeImap.flags = "\\Flagged"
+            self.assertEqual(core.sync_all(self.cfg), 0)
+        self.assertEqual(FakeImap.calls, 2)
+        self.assertEqual(FakeImap.metadata_calls, 4)
+        with closing(core.connect_db()) as conn:
+            self.assertEqual(conn.execute("SELECT flags FROM messages WHERE folder='INBOX'").fetchone()[0], "\\Flagged")
+            self.assertEqual(core.get_meta(conn, "cache_revision"), "3")
 
     def test_account_switch_clears_old_mail(self):
         with closing(core.connect_db()) as conn:
@@ -154,6 +232,7 @@ class CoreTests(unittest.TestCase):
         markup = (app / "index.html").read_text(encoding="utf-8")
         script = (app / "app.js").read_text(encoding="utf-8")
         self.assertIn("position: fixed", styles)
+        self.assertIn(".brand, .list-header, .reader-toolbar { height: 64px; min-height: 64px; }", styles)
         self.assertIn("grid-template-rows: minmax(0, 1fr)", styles)
         self.assertIn(".reading-pane { overflow-y: auto", styles)
         self.assertIn("#folders { min-height: 0; overflow-y: auto", styles)
@@ -183,6 +262,7 @@ class CoreTests(unittest.TestCase):
         with closing(core.connect_db()) as conn:
             self.assertIn("label", [row[1] for row in conn.execute("PRAGMA table_info(folders)")])
             self.assertIn("raw_html", [row[1] for row in conn.execute("PRAGMA table_info(messages)")])
+            self.assertIn("last_uid", [row[1] for row in conn.execute("PRAGMA table_info(folders)")])
             self.assertIsNotNone(conn.execute("SELECT name FROM sqlite_master WHERE name='parts'").fetchone())
 
     def test_http_status_and_ingress_assets(self):
@@ -210,6 +290,7 @@ class CoreTests(unittest.TestCase):
             self.assertEqual(value["email"], "test@gmail.com")
             self.assertEqual(value["theme"], "dark")
             self.assertTrue(value["show_external_media"])
+            self.assertEqual(value["cache_revision"], 1)
             self.assertIn("frame-ancestors 'self'", response.headers["Content-Security-Policy"])
         with urlopen(url + "/") as response:
             self.assertIn(b"Home Mail", response.read())

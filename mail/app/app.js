@@ -1,7 +1,8 @@
 (() => {
   'use strict';
   const $ = (id) => document.getElementById(id);
-  const state = {folder: 'INBOX', folders: [], messages: [], current: null, search: '', theme: 'system', externalMedia: true};
+  const state = {folder: 'INBOX', folders: [], messages: [], current: null, search: '', theme: 'system', externalMedia: true,
+    cacheRevision: null, listRequest: 0, statusBusy: false};
   const shell = document.querySelector('.shell');
   const base = new URL('./', location.href);
   let toastTimer;
@@ -100,6 +101,8 @@
   async function refreshFolders() {
     const data = await api('api/folders');
     state.folders = data.folders;
+    const selected = state.folders.find((folder) => folder.name === state.folder);
+    if (selected) $('folder-title').textContent = folderLabel(selected);
     renderFolders();
   }
 
@@ -117,15 +120,26 @@
     renderFolders();
     await loadMessages();
     if (folder && !['INBOX', 'SENT', 'DRAFTS', 'JUNK', 'TRASH'].includes(folder.role)) {
-      api('api/sync', {folder: name}).then(() => toast('Загружаю эту папку…')).catch((error) => toast(error.message));
+      api('api/sync', {folder: name}).then((result) => {
+        if (result.queued) toast('Загружаю эту папку…');
+      }).catch((error) => toast(error.message));
     }
   }
 
   async function loadMessages() {
     const folder = state.folder;
-    const result = await api(`api/messages?folder=${encodeURIComponent(folder)}&search=${encodeURIComponent(state.search)}`);
-    if (state.folder !== folder) return;
+    const search = state.search;
+    const request = ++state.listRequest;
+    const result = await api(`api/messages?folder=${encodeURIComponent(folder)}&search=${encodeURIComponent(search)}`);
+    if (state.folder !== folder || state.search !== search || request !== state.listRequest) return;
     state.messages = result.messages;
+    if (state.current) {
+      const cached = state.messages.find((message) => message.uid === state.current.uid);
+      if (cached) {
+        state.current.flags = cached.flags;
+        $('star-button').textContent = cached.flags.includes('\\Flagged') ? '★' : '☆';
+      }
+    }
     renderMessages();
   }
 
@@ -240,23 +254,31 @@
   }
 
   async function refreshStatus() {
+    if (state.statusBusy) return;
+    state.statusBusy = true;
     try {
       const status = await api('api/status');
       $('account').textContent = status.email || 'Настройте Gmail в аддоне';
       state.theme = status.theme || 'system';
       state.externalMedia = status.show_external_media !== false;
       applyTheme();
+      $('sync-button').classList.toggle('is-syncing', Boolean(status.syncing));
       if (!status.configured) $('sync-state').textContent = 'Нужны настройки';
       else if (status.syncing) $('sync-state').textContent = 'Синхронизация…';
+      else if (status.sync_queued) $('sync-state').textContent = 'В очереди…';
       else if (status.last_error) $('sync-state').textContent = 'Ошибка синхронизации';
       else $('sync-state').textContent = status.last_sync ? `Обновлено ${formatDate(status.last_sync)}` : 'Ожидание';
-      if (status.last_error) $('sync-state').title = status.last_error;
-      if (status.last_sync && status.last_sync !== refreshStatus.lastSync) {
-        refreshStatus.lastSync = status.last_sync;
+      $('sync-state').title = status.last_error || '';
+      if (status.cache_revision !== state.cacheRevision) {
         await refreshFolders();
         await loadMessages();
+        state.cacheRevision = status.cache_revision;
       }
-    } catch (error) { $('sync-state').textContent = 'Нет связи'; }
+    } catch (error) {
+      $('sync-state').textContent = 'Нет связи';
+      $('sync-button').classList.remove('is-syncing');
+    }
+    finally { state.statusBusy = false; }
   }
 
   const darkMedia = matchMedia('(prefers-color-scheme: dark)');
@@ -287,7 +309,13 @@
   $('unread-button').addEventListener('click', () => changeFlag('\\Seen', false));
   $('menu-button').addEventListener('click', () => shell.classList.toggle('show-sidebar'));
   $('back-button').addEventListener('click', () => shell.classList.remove('show-reader'));
-  $('sync-button').addEventListener('click', async () => { try { await api('api/sync', {}); toast('Проверка почты запущена'); } catch (error) { toast(error.message); } });
+  $('sync-button').addEventListener('click', async () => {
+    try {
+      const result = await api('api/sync', {});
+      toast(result.queued ? 'Проверка почты поставлена в очередь' : 'Проверка уже выполняется');
+      refreshStatus();
+    } catch (error) { toast(error.message); }
+  });
   $('search').addEventListener('input', () => { clearTimeout($('search').timer); $('search').timer = setTimeout(() => { state.search = $('search').value; loadMessages().catch((error) => toast(error.message)); }, 250); });
   $('compose-form').addEventListener('submit', async (event) => {
     event.preventDefault();
@@ -313,5 +341,5 @@
 
   refreshFolders().then(() => openFolder('INBOX')).catch((error) => toast(error.message));
   refreshStatus();
-  setInterval(refreshStatus, 15000);
+  setInterval(refreshStatus, 8000);
 })();

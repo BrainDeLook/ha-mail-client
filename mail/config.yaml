@@ -1,5 +1,5 @@
 name: Home Mail
-version: "0.2.3"
+version: "0.3.0"
 slug: mail
 description: Lightweight Gmail client for Home Assistant
 url: https://github.com/BrainDeLook/ha-mail-client
