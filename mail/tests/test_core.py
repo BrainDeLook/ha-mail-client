@@ -294,16 +294,19 @@ class CoreTests(unittest.TestCase):
         core.OPTIONS_FILE.write_text("{}", encoding="utf-8")
         self.assertEqual(core.options()["theme"], "system")
         self.assertEqual(core.options()["view_mode"], "split")
+        self.assertEqual(core.options()["default_folder"], "INBOX")
         self.assertEqual(core.options()["log_level"], "info")
-        core.OPTIONS_FILE.write_text(json.dumps({"theme": "dark", "view_mode": "list", "log_level": "debug"}), encoding="utf-8")
+        core.OPTIONS_FILE.write_text(json.dumps({"theme": "dark", "view_mode": "list", "default_folder": "IMPORTANT", "log_level": "debug"}), encoding="utf-8")
         self.assertEqual(core.options()["theme"], "dark")
         self.assertEqual(core.options()["view_mode"], "list")
+        self.assertEqual(core.options()["default_folder"], "IMPORTANT")
         self.assertEqual(core.options()["log_level"], "debug")
         core.OPTIONS_FILE.write_text(json.dumps({"theme": "ha_dark"}), encoding="utf-8")
         self.assertEqual(core.options()["theme"], "ha_dark")
-        core.OPTIONS_FILE.write_text(json.dumps({"theme": "invalid", "view_mode": "invalid", "log_level": "invalid"}), encoding="utf-8")
+        core.OPTIONS_FILE.write_text(json.dumps({"theme": "invalid", "view_mode": "invalid", "default_folder": "invalid", "log_level": "invalid"}), encoding="utf-8")
         self.assertEqual(core.options()["theme"], "system")
         self.assertEqual(core.options()["view_mode"], "split")
+        self.assertEqual(core.options()["default_folder"], "INBOX")
         self.assertEqual(core.options()["log_level"], "info")
 
     def test_debug_http_logging_excludes_query_values(self):
@@ -359,11 +362,17 @@ class CoreTests(unittest.TestCase):
         self.assertIn("history.pushState({homeMail: true, folder, uid", script)
         self.assertIn("window.addEventListener('popstate'", script)
         self.assertIn("history.back()", script)
+        self.assertIn("$('back-button').addEventListener('click', returnToList)", script)
+        self.assertIn("installSwipeBack($('reading-pane'))", script)
+        self.assertIn("installSwipeBack(doc)", script)
+        self.assertIn("dx >= 90", script)
+        self.assertIn("function defaultFolderName()", script)
+        self.assertIn("initialRoute.folder = defaultFolderName()", script)
         self.assertEqual((app / "icon.png").read_bytes(), (app.parent / "icon.png").read_bytes())
         config = (app.parent / "config.yaml").read_text(encoding="utf-8")
         self.assertNotIn('stage: experimental', config)
         self.assertNotIn('stage: stable', config)  # Home Assistant defaults to stable.
-        self.assertIn('version: "1.1.2"', config)
+        self.assertIn('version: "1.1.3"', config)
 
     def test_mime_cid_image_is_cached(self):
         mail = EmailMessage()
@@ -393,7 +402,7 @@ class CoreTests(unittest.TestCase):
     def test_http_status_and_ingress_assets(self):
         core.OPTIONS_FILE.write_text(json.dumps({"gmail_email": "test@gmail.com",
             "gmail_app_password": "secret", "sync_interval_minutes": 5, "cache_per_folder": 50,
-            "theme": "dark", "view_mode": "list", "show_external_media": True}), encoding="utf-8")
+            "theme": "dark", "view_mode": "list", "default_folder": "IMPORTANT", "show_external_media": True}), encoding="utf-8")
         with closing(core.connect_db()) as conn:
             core.ensure_account(conn, "test@gmail.com")
             conn.execute("INSERT INTO folders(name,role,label) VALUES('INBOX','INBOX','Входящие')")
@@ -415,6 +424,7 @@ class CoreTests(unittest.TestCase):
             self.assertEqual(value["email"], "test@gmail.com")
             self.assertEqual(value["theme"], "dark")
             self.assertEqual(value["view_mode"], "list")
+            self.assertEqual(value["default_folder"], "IMPORTANT")
             self.assertTrue(value["show_external_media"])
             self.assertEqual(value["cache_revision"], 1)
             self.assertIn("frame-ancestors 'self'", response.headers["Content-Security-Policy"])

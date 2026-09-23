@@ -76,6 +76,9 @@ def options():
     password = str(raw.get("gmail_app_password", ""))
     interval = max(1, min(60, int(raw.get("sync_interval_minutes", 5))))
     limit = max(10, min(200, int(raw.get("cache_per_folder", 50))))
+    default_folder = str(raw.get("default_folder", "INBOX")).upper()
+    if default_folder not in FOLDER_ROLES:
+        default_folder = "INBOX"
     theme = str(raw.get("theme", "system")).lower()
     if theme not in ("system", "light", "dark", "ha_dark"):
         theme = "system"
@@ -87,7 +90,7 @@ def options():
         log_level = "info"
     external_media = raw.get("show_external_media", True)
     return {"email": address, "password": password, "interval": interval, "limit": limit,
-            "theme": theme, "view_mode": view_mode,
+            "theme": theme, "view_mode": view_mode, "default_folder": default_folder,
             "external_media": external_media is True, "log_level": log_level}
 
 

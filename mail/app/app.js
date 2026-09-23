@@ -1,16 +1,21 @@
 (() => {
   'use strict';
   const $ = (id) => document.getElementById(id);
-  const state = {folder: 'INBOX', folders: [], messages: [], current: null, search: '', theme: 'system', viewMode: 'split', externalMedia: true,
+  const state = {folder: 'INBOX', folders: [], messages: [], current: null, search: '', theme: 'system', viewMode: 'split', defaultFolderRole: 'INBOX', externalMedia: true,
     cacheRevision: null, listRequest: 0, messageRequest: 0, statusBusy: false};
   const shell = document.querySelector('.shell');
   const base = new URL('./', location.href);
   let toastTimer;
   let routeRequest = 0;
-  const initialRoute = history.state?.homeMail ? history.state : {homeMail: true, folder: 'INBOX', uid: null, depth: 0};
+  let listReturnPending = false;
+  const historyTraversal = window.performance?.getEntriesByType?.('navigation')?.[0]?.type === 'back_forward';
+  const restoredRoute = historyTraversal && history.state?.homeMail ? history.state : null;
+  const initialRoute = restoredRoute || {homeMail: true, folder: 'INBOX', uid: null, depth: 0};
+  let startupFolderPending = !restoredRoute;
   history.replaceState(initialRoute, '');
 
   function recordRoute(folder, uid) {
+    listReturnPending = false;
     const previous = history.state;
     if (previous?.homeMail && previous.folder === folder && previous.uid === uid) return;
     history.pushState({homeMail: true, folder, uid, depth: (previous?.depth || 0) + 1}, '');
@@ -43,6 +48,11 @@
   function folderLabel(folder) {
     return ({INBOX: 'Входящие', IMPORTANT: 'Важное', FLAGGED: 'Помеченные', ALL: 'Вся почта',
       SENT: 'Отправленные', DRAFTS: 'Черновики', JUNK: 'Спам', TRASH: 'Корзина'})[folder.role] || folder.label || folder.name;
+  }
+
+  function defaultFolderName() {
+    return state.folders.find((folder) => folder.role === state.defaultFolderRole)?.name ||
+      state.folders.find((folder) => folder.role === 'INBOX')?.name || state.folders[0]?.name || 'INBOX';
   }
 
   function formatDate(date) {
@@ -245,11 +255,18 @@
             $('reading-pane').scrollTop += event.deltaY;
           }, {passive: false});
           let lastTouchY = null;
+          let touchStartX = null;
+          let touchStartY = null;
+          installSwipeBack(doc);
           doc.addEventListener('touchstart', (event) => {
             lastTouchY = event.touches.length === 1 ? event.touches[0].clientY : null;
+            touchStartX = event.touches.length === 1 ? event.touches[0].clientX : null;
+            touchStartY = lastTouchY;
           }, {passive: true});
           doc.addEventListener('touchmove', (event) => {
             if (lastTouchY === null || event.touches.length !== 1) return;
+            if (Math.abs(event.touches[0].clientX - touchStartX) >
+                Math.abs(event.touches[0].clientY - touchStartY) * 1.2) return;
             const nextY = event.touches[0].clientY;
             $('reading-pane').scrollTop += lastTouchY - nextY;
             lastTouchY = nextY;
@@ -313,6 +330,7 @@
       $('account').textContent = status.email || 'Настройте Gmail в аддоне';
       state.theme = status.theme || 'system';
       state.viewMode = status.view_mode === 'list' ? 'list' : 'split';
+      state.defaultFolderRole = status.default_folder || 'INBOX';
       shell.classList.toggle('list-mode', state.viewMode === 'list');
       state.externalMedia = status.show_external_media !== false;
       applyTheme();
@@ -325,7 +343,13 @@
       $('sync-state').title = status.last_error || '';
       if (status.cache_revision !== state.cacheRevision) {
         await refreshFolders();
-        await loadMessages();
+        if (startupFolderPending && state.folders.length) {
+          state.folder = defaultFolderName();
+          history.replaceState({...history.state, folder: state.folder, uid: null}, '');
+          startupFolderPending = false;
+          renderFolders();
+        }
+        if (state.folders.length) await loadMessages();
         state.cacheRevision = status.cache_revision;
       }
     } catch (error) {
@@ -347,6 +371,53 @@
     if ((wasDark !== dark || wasHaDark !== haDark) && state.current) renderBody(state.current);
   }
   darkMedia.addEventListener('change', applyTheme);
+
+  function returnToList() {
+    if (!shell.classList.contains('show-reader')) return;
+    ++routeRequest;
+    ++state.messageRequest;
+    state.current = null;
+    $('reader-empty').hidden = false;
+    $('message-detail').hidden = true;
+    for (const id of ['remote-button', 'unread-button', 'star-button', 'reply-button']) $(id).hidden = true;
+    shell.classList.remove('show-reader');
+    renderMessages();
+    if (history.state?.homeMail && history.state.depth > 0) {
+      listReturnPending = true;
+      history.back();
+    } else if (history.state?.homeMail) {
+      history.replaceState({...history.state, uid: null}, '');
+    }
+  }
+
+  function installSwipeBack(target) {
+    let start = null;
+    target.addEventListener('touchstart', (event) => {
+      if (!matchMedia('(max-width: 700px)').matches ||
+          !shell.classList.contains('show-reader') || event.touches.length !== 1) {
+        start = null;
+        return;
+      }
+      const touch = event.touches[0];
+      start = {x: touch.clientX, y: touch.clientY, edge: touch.clientX <= 96};
+    }, {passive: true});
+    target.addEventListener('touchmove', (event) => {
+      if (!start?.edge || event.touches.length !== 1) return;
+      const dx = event.touches[0].clientX - start.x;
+      const dy = event.touches[0].clientY - start.y;
+      if (dx > 20 && dx > Math.abs(dy) * 1.4) event.preventDefault();
+    }, {passive: false});
+    target.addEventListener('touchend', (event) => {
+      if (!start || event.changedTouches.length !== 1) return;
+      const dx = event.changedTouches[0].clientX - start.x;
+      const dy = event.changedTouches[0].clientY - start.y;
+      if (start.edge && dx >= 90 && Math.abs(dy) <= Math.min(80, dx * 0.5)) returnToList();
+      start = null;
+    }, {passive: true});
+    target.addEventListener('touchcancel', () => { start = null; }, {passive: true});
+  }
+
+  installSwipeBack($('reading-pane'));
 
   $('compose-button').addEventListener('click', () => showCompose());
   $('reply-button').addEventListener('click', () => showCompose(true));
@@ -370,12 +441,16 @@
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape' && shell.classList.contains('show-sidebar')) setSidebarOpen(false);
   });
-  $('back-button').addEventListener('click', () => {
-    if (history.state?.homeMail && history.state.depth > 0) history.back();
-    else shell.classList.remove('show-reader');
-  });
+  $('back-button').addEventListener('click', returnToList);
   window.addEventListener('popstate', async (event) => {
     const route = event.state;
+    if (listReturnPending) {
+      if (route?.homeMail && route.uid !== null) {
+        history.back();
+        return;
+      }
+      listReturnPending = false;
+    }
     if (!route?.homeMail) return;
     const request = ++routeRequest;
     try {
@@ -413,10 +488,24 @@
     window.addEventListener('pagehide', () => window.parent.postMessage({type: 'home-assistant/unsubscribe-properties'}, origin));
   }
 
-  refreshFolders().then(async () => {
-    await openFolder(initialRoute.folder, false);
-    if (initialRoute.uid !== null) await openMessage(initialRoute.uid, false);
-  }).catch((error) => toast(error.message));
-  refreshStatus();
+  async function initialize() {
+    try {
+      const status = await api('api/status');
+      state.defaultFolderRole = status.default_folder || 'INBOX';
+    } catch { /* The regular status poll will show a connection error. */ }
+    await refreshFolders();
+    if (state.folders.length) {
+      if (startupFolderPending || !state.folders.some((folder) => folder.name === initialRoute.folder)) {
+        initialRoute.folder = defaultFolderName();
+        initialRoute.uid = null;
+        history.replaceState(initialRoute, '');
+        startupFolderPending = false;
+      }
+      await openFolder(initialRoute.folder, false);
+      if (initialRoute.uid !== null) await openMessage(initialRoute.uid, false);
+    }
+    await refreshStatus();
+  }
+  initialize().catch((error) => toast(error.message));
   setInterval(refreshStatus, 8000);
 })();
