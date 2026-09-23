@@ -25,7 +25,9 @@ Home Mail — самостоятельный аддон, не форк Tachyon �
 
 ## Установка
 
-1. В Home Assistant откройте **Настройки → Дополнения → Магазин дополнений → ⋮ → Репозитории** и добавьте `https://github.com/BrainDeLook/ha-mail-client`.
+[![Добавить репозиторий в Home Assistant](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2FBrainDeLook%2Fha-mail-client)
+
+1. Нажмите кнопку выше и подтвердите добавление репозитория в Home Assistant. Если кнопка не сработала, откройте **Настройки → Дополнения → Магазин дополнений → ⋮ → Репозитории** и добавьте `https://github.com/BrainDeLook/ha-mail-client` вручную.
 2. Установите **Home Mail**. Поддерживаются `aarch64` (в том числе Raspberry Pi 5) и `amd64`.
 3. В конфигурации введите Gmail-адрес в `gmail_email` и **пароль приложения Google** в `gmail_app_password`. Обычный пароль аккаунта не подходит; сюда или в issue пароль не присылайте.
 4. Сохраните настройки, запустите аддон и откройте **Mail** в боковой панели. Первая загрузка писем может занять время.
