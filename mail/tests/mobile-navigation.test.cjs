@@ -9,8 +9,8 @@ class Node {
     this.style = {};
     this.classes = new Set();
     this.classList = {
-      add: (name) => this.classes.add(name),
-      remove: (name) => this.classes.delete(name),
+      add: (...names) => names.forEach((name) => this.classes.add(name)),
+      remove: (...names) => names.forEach((name) => this.classes.delete(name)),
       contains: (name) => this.classes.has(name),
       toggle: (name, force) => {
         const enabled = force === undefined ? !this.classes.has(name) : force;
@@ -46,12 +46,15 @@ document.querySelector = () => shell;
 document.getElementById = element;
 document.createElement = () => new Node();
 document.createElementNS = () => new Node();
+const timers = [];
 const context = {
   window, document, history, URL,
   location: {href: 'http://localhost:8099/', origin: 'http://localhost:8099'},
   matchMedia: () => ({matches: true, addEventListener() {}}),
   fetch: () => new Promise(() => {}),
-  setInterval() {}, setTimeout() {}, clearTimeout() {}
+  setInterval() {},
+  setTimeout(callback) { timers.push(callback); return timers.length; },
+  clearTimeout(id) { if (id) timers[id - 1] = null; }
 };
 const script = fs.readFileSync(path.join(__dirname, '../app/app.js'), 'utf8');
 vm.runInNewContext(script, context);
@@ -70,7 +73,10 @@ const readingPane = element('reading-pane');
 openFakeMessage();
 readingPane.fire('touchstart', {touches: [{clientX: 24, clientY: 200}]});
 readingPane.fire('touchmove', {touches: [{clientX: 125, clientY: 208}], preventDefault() {}});
+assert.equal(readingPane.style.transform, 'translate3d(101px,0,0)', 'reader tracks the finger');
 readingPane.fire('touchend', {changedTouches: [{clientX: 140, clientY: 210}]});
+assert.equal(shell.classList.contains('show-reader'), true, 'reader animates before closing');
+timers.pop()();
 assert.equal(shell.classList.contains('show-reader'), false, 'right-edge swipe closes the reader');
 assert.equal(history.backCalls, 2);
 
@@ -78,6 +84,13 @@ openFakeMessage();
 readingPane.fire('touchstart', {touches: [{clientX: 24, clientY: 200}]});
 readingPane.fire('touchend', {changedTouches: [{clientX: 28, clientY: 350}]});
 assert.equal(shell.classList.contains('show-reader'), true, 'vertical scroll does not navigate back');
+
+readingPane.fire('touchstart', {touches: [{clientX: 24, clientY: 200}]});
+readingPane.fire('touchmove', {touches: [{clientX: 65, clientY: 202}], preventDefault() {}});
+readingPane.fire('touchend', {changedTouches: [{clientX: 68, clientY: 204}]});
+assert.equal(readingPane.style.transform, 'translate3d(0px,0,0)', 'short swipe springs back');
+timers.pop()();
+assert.equal(shell.classList.contains('show-reader'), true, 'short swipe keeps the message open');
 
 readingPane.fire('touchstart', {touches: [{clientX: 180, clientY: 200}]});
 readingPane.fire('touchend', {changedTouches: [{clientX: 310, clientY: 207}]});

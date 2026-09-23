@@ -8,6 +8,7 @@
   let toastTimer;
   let routeRequest = 0;
   let listReturnPending = false;
+  let swipeAnimationTimer;
   const historyTraversal = window.performance?.getEntriesByType?.('navigation')?.[0]?.type === 'back_forward';
   const restoredRoute = historyTraversal && history.state?.homeMail ? history.state : null;
   const initialRoute = restoredRoute || {homeMail: true, folder: 'INBOX', uid: null, depth: 0};
@@ -157,6 +158,7 @@
   }
 
   async function openFolder(name, recordHistory = true) {
+    resetSwipeVisual();
     ++state.messageRequest;
     if (recordHistory) {
       ++routeRequest;
@@ -372,8 +374,16 @@
   }
   darkMedia.addEventListener('change', applyTheme);
 
+  function resetSwipeVisual() {
+    clearTimeout(swipeAnimationTimer);
+    const reader = $('reading-pane');
+    reader.classList.remove('swipe-dragging', 'swipe-settling');
+    reader.style.transform = '';
+  }
+
   function returnToList() {
     if (!shell.classList.contains('show-reader')) return;
+    resetSwipeVisual();
     ++routeRequest;
     ++state.messageRequest;
     state.current = null;
@@ -392,29 +402,67 @@
 
   function installSwipeBack(target) {
     let start = null;
+    const touchX = (touch) => touch.screenX ?? touch.clientX;
+    const touchY = (touch) => touch.screenY ?? touch.clientY;
     target.addEventListener('touchstart', (event) => {
       if (!matchMedia('(max-width: 700px)').matches ||
-          !shell.classList.contains('show-reader') || event.touches.length !== 1) {
+          !shell.classList.contains('show-reader') ||
+          $('reading-pane').classList.contains('swipe-settling') || event.touches.length !== 1) {
         start = null;
         return;
       }
       const touch = event.touches[0];
-      start = {x: touch.clientX, y: touch.clientY, edge: touch.clientX <= 96};
+      start = {x: touchX(touch), y: touchY(touch), time: Date.now(),
+        edge: touch.clientX <= 96, dragging: false, distance: 0};
     }, {passive: true});
     target.addEventListener('touchmove', (event) => {
       if (!start?.edge || event.touches.length !== 1) return;
-      const dx = event.touches[0].clientX - start.x;
-      const dy = event.touches[0].clientY - start.y;
-      if (dx > 20 && dx > Math.abs(dy) * 1.4) event.preventDefault();
+      const dx = touchX(event.touches[0]) - start.x;
+      const dy = touchY(event.touches[0]) - start.y;
+      if (!start.dragging && Math.abs(dy) > 12 && Math.abs(dy) > Math.abs(dx)) {
+        start = null;
+        return;
+      }
+      const reader = $('reading-pane');
+      if (!start.dragging && dx > 12 && dx > Math.abs(dy) * 1.2) {
+        start.dragging = true;
+        reader.classList.add('swipe-dragging');
+      }
+      if (!start.dragging) return;
+      start.distance = Math.min(Math.max(dx, 0), reader.clientWidth || window.innerWidth || 360);
+      reader.style.transform = `translate3d(${start.distance}px,0,0)`;
+      event.preventDefault();
     }, {passive: false});
     target.addEventListener('touchend', (event) => {
       if (!start || event.changedTouches.length !== 1) return;
-      const dx = event.changedTouches[0].clientX - start.x;
-      const dy = event.changedTouches[0].clientY - start.y;
-      if (start.edge && dx >= 90 && Math.abs(dy) <= Math.min(80, dx * 0.5)) returnToList();
+      const dx = touchX(event.changedTouches[0]) - start.x;
+      const dy = touchY(event.changedTouches[0]) - start.y;
+      if (start.dragging) {
+        const reader = $('reading-pane');
+        const width = reader.clientWidth || window.innerWidth || 360;
+        const completed = dx >= width * 0.28 ||
+          (dx >= 60 && Date.now() - start.time < 250 && Math.abs(dy) < dx * 0.5);
+        reader.classList.remove('swipe-dragging');
+        reader.classList.add('swipe-settling');
+        void reader.offsetWidth;
+        reader.style.transform = `translate3d(${completed ? width : 0}px,0,0)`;
+        swipeAnimationTimer = setTimeout(() => {
+          if (completed) returnToList();
+          else resetSwipeVisual();
+        }, 240);
+      }
       start = null;
     }, {passive: true});
-    target.addEventListener('touchcancel', () => { start = null; }, {passive: true});
+    target.addEventListener('touchcancel', () => {
+      if (start?.dragging) {
+        const reader = $('reading-pane');
+        reader.classList.remove('swipe-dragging');
+        reader.classList.add('swipe-settling');
+        reader.style.transform = 'translate3d(0px,0,0)';
+        swipeAnimationTimer = setTimeout(resetSwipeVisual, 240);
+      }
+      start = null;
+    }, {passive: true});
   }
 
   installSwipeBack($('reading-pane'));

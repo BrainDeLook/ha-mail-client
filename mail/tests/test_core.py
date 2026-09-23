@@ -365,14 +365,15 @@ class CoreTests(unittest.TestCase):
         self.assertIn("$('back-button').addEventListener('click', returnToList)", script)
         self.assertIn("installSwipeBack($('reading-pane'))", script)
         self.assertIn("installSwipeBack(doc)", script)
-        self.assertIn("dx >= 90", script)
+        self.assertIn("reader.style.transform = `translate3d(${start.distance}px,0,0)`", script)
+        self.assertIn("dx >= width * 0.28", script)
         self.assertIn("function defaultFolderName()", script)
         self.assertIn("initialRoute.folder = defaultFolderName()", script)
         self.assertEqual((app / "icon.png").read_bytes(), (app.parent / "icon.png").read_bytes())
         config = (app.parent / "config.yaml").read_text(encoding="utf-8")
         self.assertNotIn('stage: experimental', config)
         self.assertNotIn('stage: stable', config)  # Home Assistant defaults to stable.
-        self.assertIn('version: "1.1.3"', config)
+        self.assertIn('version: "1.1.4"', config)
 
     def test_mime_cid_image_is_cached(self):
         mail = EmailMessage()
