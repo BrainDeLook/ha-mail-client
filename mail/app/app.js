@@ -158,16 +158,22 @@
   function renderBody(message) {
     const text = $('detail-body');
     const frame = $('detail-html');
+    frame.mailObserver?.disconnect();
     text.textContent = message.body;
     text.hidden = Boolean(message.html);
     frame.hidden = !message.html;
     $('remote-button').hidden = !message.html || Boolean(message.remoteLoaded);
     if (message.html) {
       const dark = document.documentElement.classList.contains('dark');
-      frame.srcdoc = `<meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src http: https: data:; media-src http: https: data:; style-src 'unsafe-inline'; frame-src 'none'; form-action 'none'"><style>body{font:14px/1.6 -apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;color:${dark ? '#e8edf5' : '#293442'};background:${dark ? '#151d28' : '#fff'};margin:0;overflow-wrap:anywhere}img,video{max-width:100%;height:auto}table{max-width:100%;border-collapse:collapse}td,th{padding:4px}a{color:${dark ? '#8bc2ff' : '#176bd7'}}</style>${message.html}`;
+      frame.srcdoc = `<meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'none'; img-src http: https: data:; media-src http: https: data:; style-src 'unsafe-inline'; frame-src 'none'; form-action 'none'"><style>body{font:14px/1.6 -apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;color:${dark ? '#e8edf5' : '#293442'};background:${dark ? '#151d28' : '#fff'};margin:0;word-break:normal;overflow-wrap:normal}img,video{max-width:100%;height:auto}table{max-width:100%;border-collapse:collapse}td,th{padding:4px}a{color:${dark ? '#8bc2ff' : '#176bd7'}}</style>${message.html}`;
       frame.addEventListener('load', () => {
-        try { frame.style.height = `${Math.max(200, frame.contentDocument.body.scrollHeight + 30)}px`; }
-        catch { frame.style.height = '700px'; }
+        try {
+          const body = frame.contentDocument.body;
+          const resize = () => { frame.style.height = `${Math.max(200, body.scrollHeight + 30)}px`; };
+          resize();
+          frame.mailObserver = new ResizeObserver(resize);
+          frame.mailObserver.observe(body);
+        } catch { frame.style.height = '700px'; }
       }, {once: true});
     } else {
       frame.removeAttribute('srcdoc');

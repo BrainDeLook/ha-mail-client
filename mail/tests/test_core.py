@@ -128,12 +128,15 @@ class CoreTests(unittest.TestCase):
         self.assertIn("https://images.example/p.png", allowed)
 
     def test_sender_formatting_is_preserved_without_active_css(self):
-        source = ('<table style="width:100%;background-color:#ffffff;border-collapse:collapse">'
+        source = ('<table width="100%" cellpadding="12" cellspacing="0" '
+                  'style="width:100%;background-color:#ffffff;border-collapse:collapse">'
                   '<tr><td style="padding:20px;text-align:center;background-image:url(https://track.example/x)">'
                   '<img src="https://images.example/logo.png" style="max-width:100%;height:auto" '
                   'onerror="bad()"></td></tr></table>')
         result = core.safe_html(source, "INBOX", 4, {}, True)
         self.assertIn("width:100%", result)
+        self.assertIn('width="100%"', result)
+        self.assertIn('cellpadding="12"', result)
         self.assertIn("padding:20px", result)
         self.assertIn("max-width:100%", result)
         self.assertIn("https://images.example/logo.png", result)
@@ -144,6 +147,15 @@ class CoreTests(unittest.TestCase):
     def test_external_media_can_be_disabled_in_addon_options(self):
         core.OPTIONS_FILE.write_text(json.dumps({"show_external_media": False}), encoding="utf-8")
         self.assertFalse(core.options()["external_media"])
+
+    def test_sidebar_and_mail_frame_regression(self):
+        app = Path(__file__).parents[1] / "app"
+        styles = (app / "dark.css").read_text(encoding="utf-8")
+        markup = (app / "index.html").read_text(encoding="utf-8")
+        self.assertIn("position: fixed", styles)
+        self.assertIn("#folders { min-height: 0; overflow-y: auto", styles)
+        self.assertIn('sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"', markup)
+        self.assertNotIn("allow-scripts", markup)
 
     def test_mime_cid_image_is_cached(self):
         mail = EmailMessage()

@@ -306,14 +306,27 @@ class SafeMailHtml(HTMLParser):
         for key in ("alt", "title"):
             if values.get(key):
                 safe.append(f' {key}="{html.escape(values[key], quote=True)}"')
-        for key in ("width", "height", "colspan", "rowspan"):
-            if values.get(key) and values[key].isdigit():
-                safe.append(f' {key}="{min(2000, int(values[key]))}"')
+        for key in ("width", "height"):
+            size = (values.get(key) or "").strip()
+            if size.isdigit():
+                safe.append(f' {key}="{min(2000, int(size))}"')
+            elif re.fullmatch(r"\d{1,3}%", size) and int(size[:-1]) <= 100:
+                safe.append(f' {key}="{size}"')
+        for key in ("colspan", "rowspan"):
+            size = (values.get(key) or "").strip()
+            if size.isdigit():
+                safe.append(f' {key}="{min(100, int(size))}"')
+        for key in ("cellpadding", "cellspacing", "border"):
+            size = (values.get(key) or "").strip()
+            if tag == "table" and size.isdigit():
+                safe.append(f' {key}="{min(100, int(size))}"')
         style = self.safe_style(values.get("style") or "")
         if style:
             safe.append(f' style="{html.escape(style, quote=True)}"')
         if values.get("align") in ("left", "right", "center", "justify"):
             safe.append(f' align="{values["align"]}"')
+        if values.get("valign") in ("top", "middle", "bottom", "baseline"):
+            safe.append(f' valign="{values["valign"]}"')
         if tag == "a":
             href = values.get("href", "").strip()
             parsed = urlsplit(href)
