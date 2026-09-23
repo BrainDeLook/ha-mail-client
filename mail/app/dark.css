@@ -194,6 +194,27 @@ html, body { width: 100%; height: 100%; overflow: hidden; }
 .message-card.active { background: #e8f7fa; border-left-color: #009ac7; }
 .dark .message-card.active { background: #173039; border-left-color: #03a9f4; }
 
+/* Translucent rounded highlight for unread mail, without shifting either list layout. */
+.message-card.unread { position: relative; isolation: isolate; }
+.message-card.unread::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: 4px 7px;
+  border-radius: 12px;
+  background: rgba(255, 153, 31, .17);
+  border: 1px solid rgba(220, 119, 0, .22);
+  pointer-events: none;
+}
+.dark .message-card.unread::before,
+.ha-dark .message-card.unread::before {
+  background: rgba(255, 153, 31, .22);
+  border-color: rgba(255, 177, 72, .28);
+}
+.message-card.unread:hover::before { background: rgba(255, 153, 31, .25); }
+.dark .message-card.unread:hover::before,
+.ha-dark .message-card.unread:hover::before { background: rgba(255, 153, 31, .30); }
+
 /* Gmail-like list view: list and message use the same main column. */
 .shell.list-mode { grid-template-columns: 252px minmax(0, 1fr); }
 .shell.list-mode:not(.show-reader) .reading-pane,

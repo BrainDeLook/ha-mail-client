@@ -404,6 +404,9 @@ class CoreTests(unittest.TestCase):
         self.assertIn('installSwipeBack(root, true)', script)
         self.assertIn('content.style.zoom = String(host.clientWidth / naturalWidth)', script)
         self.assertIn('installSidebarSwipe()', script)
+        self.assertIn("(unread ? ' unread' : '')", script)
+        self.assertIn('.message-card.unread::before', styles)
+        self.assertIn('.ha-dark .message-card.unread::before', styles)
         self.assertNotIn("$('reading-pane').scrollTop += delta", script)
         self.assertIn("reader.style.transform = `translate3d(${start.distance}px,0,0)`", script)
         self.assertNotIn('touch.clientX <= 96', script)
@@ -414,7 +417,7 @@ class CoreTests(unittest.TestCase):
         config = (app.parent / "config.yaml").read_text(encoding="utf-8")
         self.assertNotIn('stage: experimental', config)
         self.assertNotIn('stage: stable', config)  # Home Assistant defaults to stable.
-        self.assertIn('version: "1.1.11"', config)
+        self.assertIn('version: "1.1.12"', config)
 
     def test_mime_cid_image_is_cached(self):
         mail = EmailMessage()
