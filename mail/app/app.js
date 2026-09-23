@@ -1,7 +1,7 @@
 (() => {
   'use strict';
   const $ = (id) => document.getElementById(id);
-  const state = {folder: 'INBOX', folders: [], messages: [], current: null, search: '', theme: 'system'};
+  const state = {folder: 'INBOX', folders: [], messages: [], current: null, search: '', theme: 'system', externalMedia: true};
   const shell = document.querySelector('.shell');
   const base = new URL('./', location.href);
   let toastTimer;
@@ -132,9 +132,10 @@
   async function openMessage(uid) {
     try {
       const folder = state.folder;
-      const result = await api(`api/message?folder=${encodeURIComponent(folder)}&uid=${uid}`);
+      const result = await api(`api/message?folder=${encodeURIComponent(folder)}&uid=${uid}&remote=${state.externalMedia ? 1 : 0}`);
       if (state.folder !== folder) return;
       const message = result.message;
+      message.remoteLoaded = state.externalMedia;
       state.current = message;
       $('reader-empty').hidden = true;
       $('message-detail').hidden = false;
@@ -220,6 +221,7 @@
       const status = await api('api/status');
       $('account').textContent = status.email || 'Настройте Gmail в аддоне';
       state.theme = status.theme || 'system';
+      state.externalMedia = status.show_external_media !== false;
       applyTheme();
       if (!status.configured) $('sync-state').textContent = 'Нужны настройки';
       else if (status.syncing) $('sync-state').textContent = 'Синхронизация…';

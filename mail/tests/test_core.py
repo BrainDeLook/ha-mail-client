@@ -127,6 +127,24 @@ class CoreTests(unittest.TestCase):
         allowed = core.safe_html(source, "INBOX", 42, {"photo1": 0}, True)
         self.assertIn("https://images.example/p.png", allowed)
 
+    def test_sender_formatting_is_preserved_without_active_css(self):
+        source = ('<table style="width:100%;background-color:#ffffff;border-collapse:collapse">'
+                  '<tr><td style="padding:20px;text-align:center;background-image:url(https://track.example/x)">'
+                  '<img src="https://images.example/logo.png" style="max-width:100%;height:auto" '
+                  'onerror="bad()"></td></tr></table>')
+        result = core.safe_html(source, "INBOX", 4, {}, True)
+        self.assertIn("width:100%", result)
+        self.assertIn("padding:20px", result)
+        self.assertIn("max-width:100%", result)
+        self.assertIn("https://images.example/logo.png", result)
+        self.assertNotIn("background-image", result)
+        self.assertNotIn("track.example", result)
+        self.assertNotIn("onerror", result)
+
+    def test_external_media_can_be_disabled_in_addon_options(self):
+        core.OPTIONS_FILE.write_text(json.dumps({"show_external_media": False}), encoding="utf-8")
+        self.assertFalse(core.options()["external_media"])
+
     def test_mime_cid_image_is_cached(self):
         mail = EmailMessage()
         mail["Subject"] = "Photo"
@@ -154,7 +172,7 @@ class CoreTests(unittest.TestCase):
     def test_http_status_and_ingress_assets(self):
         core.OPTIONS_FILE.write_text(json.dumps({"gmail_email": "test@gmail.com",
             "gmail_app_password": "secret", "sync_interval_minutes": 5, "cache_per_folder": 50,
-            "theme": "dark"}), encoding="utf-8")
+            "theme": "dark", "show_external_media": True}), encoding="utf-8")
         with closing(core.connect_db()) as conn:
             core.ensure_account(conn, "test@gmail.com")
             conn.execute("INSERT INTO folders(name,role,label) VALUES('INBOX','INBOX','Входящие')")
@@ -175,6 +193,7 @@ class CoreTests(unittest.TestCase):
             self.assertTrue(value["configured"])
             self.assertEqual(value["email"], "test@gmail.com")
             self.assertEqual(value["theme"], "dark")
+            self.assertTrue(value["show_external_media"])
             self.assertIn("frame-ancestors 'self'", response.headers["Content-Security-Policy"])
         with urlopen(url + "/") as response:
             self.assertIn(b"Home Mail", response.read())

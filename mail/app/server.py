@@ -63,7 +63,7 @@ def sync_worker():
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "HomeMail/0.2.0"
+    server_version = "HomeMail/0.2.1"
 
     def log_message(self, format, *args):
         # Avoid logging Ingress tokens, search terms or message details.
@@ -127,6 +127,7 @@ class Handler(BaseHTTPRequestHandler):
                 if url.path == "/api/status":
                     return self.reply(200, {"email": cfg["email"], "configured": bool(cfg["email"] and cfg["password"]),
                                             "theme": cfg["theme"],
+                                            "show_external_media": cfg["external_media"],
                                             "last_sync": core.get_meta(conn, "last_sync"),
                                             "last_error": core.get_meta(conn, "last_error"),
                                             "syncing": SYNC_STATE["running"]})

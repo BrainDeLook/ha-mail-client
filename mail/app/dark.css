@@ -1,3 +1,8 @@
+.sidebar { min-height: 0; overflow: hidden; }
+#folders { min-height: 0; overflow-y: auto; overflow-x: hidden; flex: 1 1 auto; }
+.sidebar-bottom { flex: 0 0 auto; margin-top: 8px; }
+.ha-button { flex: 0 0 auto; }
+
 .mail-frame {
   width: 100%;
   min-height: 400px;

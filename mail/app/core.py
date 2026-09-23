@@ -79,8 +79,9 @@ def options():
     theme = str(raw.get("theme", "system")).lower()
     if theme not in ("system", "light", "dark"):
         theme = "system"
+    external_media = raw.get("show_external_media", True)
     return {"email": address, "password": password, "interval": interval, "limit": limit,
-            "theme": theme}
+            "theme": theme, "external_media": external_media is True}
 
 
 def connect_db():
@@ -239,11 +240,34 @@ def parse_message(raw, folder, uid, flags):
 class SafeMailHtml(HTMLParser):
     """Small allowlist renderer; email HTML is never trusted as application HTML."""
 
-    TAGS = {"a", "audio", "b", "blockquote", "br", "code", "div", "em", "h1", "h2", "h3",
+    TAGS = {"a", "audio", "b", "blockquote", "br", "center", "code", "div", "em", "h1", "h2", "h3",
             "h4", "hr", "i", "img", "li", "ol", "p", "pre", "s", "small", "source", "span",
             "strong", "table", "tbody", "td", "th", "thead", "tr", "u", "ul", "video"}
     VOID = {"br", "hr", "img", "source"}
     HIDDEN = {"script", "style", "head", "iframe", "object", "embed", "form", "svg", "math", "template"}
+    STYLE_PROPERTIES = {"background", "background-color", "border", "border-bottom", "border-collapse",
+                        "border-color", "border-left", "border-radius", "border-right", "border-top",
+                        "border-width", "color", "display", "font", "font-family", "font-size",
+                        "font-style", "font-weight", "height", "letter-spacing", "line-height",
+                        "margin", "margin-bottom", "margin-left", "margin-right", "margin-top",
+                        "max-width", "min-width", "padding", "padding-bottom", "padding-left",
+                        "padding-right", "padding-top", "text-align", "text-decoration", "vertical-align",
+                        "white-space", "width"}
+
+    @classmethod
+    def safe_style(cls, value):
+        declarations = []
+        for item in value.split(";"):
+            name, separator, content = item.partition(":")
+            name, content = name.strip().lower(), content.strip()
+            if not separator or name not in cls.STYLE_PROPERTIES or len(content) > 160:
+                continue
+            if not re.fullmatch(r"[\w\s#.,%()/'\"+\-]*", content, flags=re.ASCII):
+                continue
+            if re.search(r"url\s*\(|expression\s*\(|var\s*\(|(?:image|attr)\s*\(", content, re.I):
+                continue
+            declarations.append(f"{name}:{content}")
+        return ";".join(declarations)
 
     def __init__(self, folder, uid, cid_parts, allow_remote):
         super().__init__(convert_charrefs=True)
@@ -285,6 +309,11 @@ class SafeMailHtml(HTMLParser):
         for key in ("width", "height", "colspan", "rowspan"):
             if values.get(key) and values[key].isdigit():
                 safe.append(f' {key}="{min(2000, int(values[key]))}"')
+        style = self.safe_style(values.get("style") or "")
+        if style:
+            safe.append(f' style="{html.escape(style, quote=True)}"')
+        if values.get("align") in ("left", "right", "center", "justify"):
+            safe.append(f' align="{values["align"]}"')
         if tag == "a":
             href = values.get("href", "").strip()
             parsed = urlsplit(href)

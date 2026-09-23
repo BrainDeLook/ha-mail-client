@@ -16,7 +16,7 @@ For Raspberry Pi 5, the published `aarch64` image must be available before insta
 - Inbox, Sent, Drafts, Spam and Trash where Gmail exposes those folders; local search of cached messages; read/unread and star flags.
 - Compose and reply through Gmail SMTP. Settings, including app password and sync interval, live exclusively in the HA add-on configuration.
 - Gmail special folders and IMAP modified UTF-7 names are displayed in readable form.
-- Sanitized HTML mail, cached inline images/audio/video and downloadable cached attachments. External HTTPS media loads only after clicking **Show external media**. Email scripts, forms and frames are blocked.
+- Sanitized HTML mail with basic sender formatting, cached inline images/audio/video and downloadable cached attachments. External HTTPS media loads by default; set `show_external_media: false` to block it until clicking **Show external media** for a message. Remote images can reveal your IP address to the sender. Email scripts, forms and frames are blocked.
 - Optional `theme` add-on setting: `system`, `light` or `dark`.
 
 ## Current limitations
