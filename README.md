@@ -8,10 +8,10 @@
 
 <p align="center">
   <a href="https://github.com/BrainDeLook/ha-mail-client/actions/workflows/build.yaml"><img src="https://github.com/BrainDeLook/ha-mail-client/actions/workflows/build.yaml/badge.svg" alt="Сборка"></a>
-  <a href="https://github.com/BrainDeLook/ha-mail-client/releases"><img src="https://img.shields.io/github/v/release/BrainDeLook/ha-mail-client?include_prereleases&label=version" alt="Версия"></a>
+  <a href="https://github.com/BrainDeLook/ha-mail-client/releases"><img src="https://img.shields.io/github/v/release/BrainDeLook/ha-mail-client?label=version" alt="Версия"></a>
 </p>
 
-Home Mail — самостоятельный экспериментальный аддон, не форк Tachyon или Thunderbird. Веб-интерфейс открывается через Ingress: отдельный порт наружу не публикуется, второй вход внутри приложения не нужен. Настройки Gmail задаются на странице конфигурации аддона.
+Home Mail — самостоятельный аддон, не форк Tachyon или Thunderbird. Веб-интерфейс открывается через Ingress: отдельный порт наружу не публикуется, второй вход внутри приложения не нужен. Настройки Gmail задаются на странице конфигурации аддона.
 
 ## Возможности
 

@@ -308,6 +308,13 @@ class CoreTests(unittest.TestCase):
         self.assertIn("doc.addEventListener('wheel'", script)
         self.assertIn('sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"', markup)
         self.assertNotIn("allow-scripts", markup)
+        self.assertIn('<img src="icon.png" alt="">', markup)
+        self.assertIn('glyph.append(folderIcon(folder.role))', script)
+        self.assertNotIn("INBOX: '▣'", script)
+        self.assertEqual((app / "icon.png").read_bytes(), (app.parent / "icon.png").read_bytes())
+        config = (app.parent / "config.yaml").read_text(encoding="utf-8")
+        self.assertIn('stage: stable', config)
+        self.assertIn('version: "1.0.0"', config)
 
     def test_mime_cid_image_is_cached(self):
         mail = EmailMessage()
@@ -363,6 +370,9 @@ class CoreTests(unittest.TestCase):
             self.assertIn("frame-ancestors 'self'", response.headers["Content-Security-Policy"])
         with urlopen(url + "/") as response:
             self.assertIn(b"Home Mail", response.read())
+        with urlopen(url + "/icon.png") as response:
+            self.assertEqual(response.headers["Content-Type"], "image/png")
+            self.assertEqual(response.read(), (Path(__file__).parents[1] / "icon.png").read_bytes())
         with urlopen(url + "/api/folders") as response:
             self.assertEqual(json.load(response)["folders"][0]["label"], "Входящие")
         with urlopen(url + "/api/message?folder=INBOX&uid=7") as response:

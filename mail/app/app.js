@@ -46,12 +46,38 @@
     return (sender || '').replace(/\s*<[^>]+>/, '').replace(/^"|"$/g, '') || sender || 'Неизвестный отправитель';
   }
 
+  function setStarred(starred) {
+    $('star-button').classList.toggle('is-marked', starred);
+    $('star-button').setAttribute('aria-pressed', String(starred));
+  }
+
   function makeButton(className, label, click) {
     const button = document.createElement('button');
     button.type = 'button';
     button.className = className;
     button.addEventListener('click', click);
     return button;
+  }
+
+  const folderPaths = {
+    INBOX: '<path d="M4 5h16v12l-3 3H7l-3-3V5Z"/><path d="M4 14h5l1.5 2h3l1.5-2h5"/>',
+    IMPORTANT: '<path d="m12 2 9 10-9 10-9-10L12 2Z"/><path d="M12 7v6m0 4h.01"/>',
+    FLAGGED: '<path d="m12 2 3.1 6.4 7.1 1-5.1 5 .9 7-6-3.3-6 3.3.9-7-5.1-5 7.1-1L12 2Z"/>',
+    ALL: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
+    SENT: '<path d="m3 11 18-8-8 18-2.5-7.5L3 11Z"/><path d="M10.5 13.5 21 3"/>',
+    DRAFTS: '<path d="M6 3h9l4 4v14H6V3Z"/><path d="M15 3v5h4M9 12h7M9 16h7"/>',
+    JUNK: '<path d="m12 3 10 18H2L12 3Z"/><path d="M12 9v5m0 3h.01"/>',
+    TRASH: '<path d="M4 7h16M9 7V4h6v3m3 0-1 14H7L6 7m4 4v6m4-6v6"/>',
+    FOLDER: '<path d="M3 6h7l2 2h9v12H3V6Z"/>'
+  };
+
+  function folderIcon(role) {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('fill', 'none');
+    svg.setAttribute('aria-hidden', 'true');
+    svg.innerHTML = folderPaths[role] || folderPaths.FOLDER;
+    return svg;
   }
 
   function renderFolders() {
@@ -61,8 +87,7 @@
       const button = makeButton('folder' + (state.folder === folder.name ? ' active' : ''), '', () => openFolder(folder.name));
       const glyph = document.createElement('span');
       glyph.className = 'glyph';
-      glyph.textContent = ({INBOX: '▣', IMPORTANT: '◆', FLAGGED: '☆', ALL: '▦',
-        SENT: '↗', DRAFTS: '▤', JUNK: '⚠', TRASH: '⌫'})[folder.role] || '▧';
+      glyph.append(folderIcon(folder.role));
       const text = document.createElement('span');
       text.textContent = folderLabel(folder);
       button.append(glyph, text);
@@ -143,7 +168,7 @@
       const cached = state.messages.find((message) => message.uid === state.current.uid);
       if (cached) {
         state.current.flags = cached.flags;
-        $('star-button').textContent = cached.flags.includes('\\Flagged') ? '★' : '☆';
+        setStarred(cached.flags.includes('\\Flagged'));
       }
     }
     renderMessages();
@@ -168,7 +193,7 @@
       $('sender-avatar').textContent = shortSender(message.sender).slice(0, 1).toUpperCase();
       renderAttachments(message);
       for (const id of ['unread-button', 'star-button', 'reply-button']) $(id).hidden = false;
-      $('star-button').textContent = message.flags.includes('\\Flagged') ? '★' : '☆';
+      setStarred(message.flags.includes('\\Flagged'));
       shell.classList.add('show-reader');
       renderMessages();
       if (!message.flags.includes('\\Seen')) await changeFlag('\\Seen', true);
@@ -243,6 +268,7 @@
       const flags = new Set(state.current.flags.split(' ').filter(Boolean));
       if (enabled) flags.add(flag); else flags.delete(flag);
       state.current.flags = [...flags].join(' ');
+      if (flag === '\\Flagged') setStarred(enabled);
       const item = state.messages.find((message) => message.uid === state.current.uid);
       if (item) item.flags = state.current.flags;
       renderMessages();

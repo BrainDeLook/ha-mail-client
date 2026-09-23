@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="color-scheme" content="light">
   <title>Home Mail</title>
+  <link rel="icon" href="icon.png" type="image/png">
   <link rel="stylesheet" href="app.css">
   <link rel="stylesheet" href="dark.css">
   <script src="app.js" defer></script>
@@ -12,36 +13,36 @@
 <body>
   <div class="shell">
     <aside class="sidebar" id="sidebar">
-      <div class="brand"><div class="brand-mark">✉</div><div><strong>Mail</strong><small>Home Assistant</small></div></div>
-      <button class="compose" id="compose-button" type="button"><span>✎</span> Новое письмо</button>
+      <div class="brand"><div class="brand-mark"><img src="icon.png" alt=""></div><div><strong>Mail</strong><small>Home Assistant</small></div></div>
+      <button class="compose" id="compose-button" type="button"><span aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="m4 20 4.5-1 10-10a2.1 2.1 0 0 0-3-3l-10 10L4 20Z"/><path d="m13.5 8.5 3 3"/></svg></span> Новое письмо</button>
       <div class="section-title">Ящики</div>
       <nav id="folders" aria-label="Почтовые папки"></nav>
       <div class="sidebar-bottom">
-        <button class="ha-button" id="ha-button" type="button"><span class="ha-icon">⌂</span> Home Assistant <span class="chevron" aria-hidden="true"><svg viewBox="0 0 16 16" width="16" height="16" fill="none"><path d="m6 4 4 4-4 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span></button>
+        <button class="ha-button" id="ha-button" type="button"><span class="ha-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V10Z"/><path d="M9 21v-7h6v7"/></svg></span> Home Assistant <span class="chevron" aria-hidden="true"><svg viewBox="0 0 16 16" width="16" height="16" fill="none"><path d="m6 4 4 4-4 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span></button>
         <div class="account" id="account">Настройте Gmail в аддоне</div>
       </div>
     </aside>
     <button class="sidebar-scrim" id="sidebar-scrim" type="button" aria-label="Закрыть панель папок"></button>
     <main class="list-pane" id="list-pane">
       <header class="list-header">
-        <button class="icon mobile-menu" id="menu-button" type="button" aria-label="Показать папки" aria-controls="sidebar" aria-expanded="false">☰</button>
+        <button class="icon mobile-menu" id="menu-button" type="button" aria-label="Показать папки" aria-controls="sidebar" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
         <div><div class="eyebrow">ПОЧТА</div><h1 id="folder-title">Входящие</h1></div>
-        <button class="icon" id="sync-button" title="Проверить почту" aria-label="Проверить почту">↻</button>
+        <button class="icon" id="sync-button" title="Проверить почту" aria-label="Проверить почту"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.2 6.5"/><path d="M20 4v7h-7"/></svg></button>
       </header>
-      <div class="search-wrap"><span>⌕</span><input id="search" type="search" placeholder="Поиск в папке" aria-label="Поиск в папке"></div>
+      <div class="search-wrap"><span aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><circle cx="10.8" cy="10.8" r="6.5"/><path d="m16 16 4.2 4.2"/></svg></span><input id="search" type="search" placeholder="Поиск в папке" aria-label="Поиск в папке"></div>
       <div class="list-meta"><span id="list-count">0 писем</span><span id="sync-state">—</span></div>
       <div class="message-list" id="message-list" role="list"></div>
     </main>
     <section class="reading-pane" id="reading-pane" aria-label="Просмотр письма">
       <div class="reader-toolbar">
-        <button class="icon mobile-back" id="back-button" aria-label="К списку">‹</button>
+        <button class="icon mobile-back" id="back-button" aria-label="К списку"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m15 5-7 7 7 7"/></svg></button>
         <div class="toolbar-spacer"></div>
         <button class="text-button" id="remote-button" hidden>Показать внешние медиа</button>
-        <button class="icon" id="unread-button" title="Отметить непрочитанным" aria-label="Отметить непрочитанным" hidden>◌</button>
-        <button class="icon" id="star-button" title="Пометить" aria-label="Пометить" hidden>☆</button>
-        <button class="text-button" id="reply-button" hidden>Ответить ↩</button>
+        <button class="icon" id="unread-button" title="Отметить непрочитанным" aria-label="Отметить непрочитанным" hidden><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3 6h18v12H3V6Z"/><path d="m3 8 9 7 9-7"/></svg></button>
+        <button class="icon" id="star-button" title="Пометить" aria-label="Пометить" aria-pressed="false" hidden><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m12 2 3.1 6.4 7.1 1-5.1 5 .9 7-6-3.3-6 3.3.9-7-5.1-5 7.1-1L12 2Z"/></svg></button>
+        <button class="text-button" id="reply-button" hidden>Ответить</button>
       </div>
-      <div id="reader-empty" class="reader-empty"><div class="empty-art">✉</div><h2>Выберите письмо</h2><p>Последние сообщения уже доступны в локальном кэше.</p></div>
+      <div id="reader-empty" class="reader-empty"><div class="empty-art"><img src="icon.png" alt=""></div><h2>Выберите письмо</h2><p>Последние сообщения уже доступны в локальном кэше.</p></div>
       <article class="message-detail" id="message-detail" hidden>
         <div class="detail-top"><div class="eyebrow" id="detail-folder">ВХОДЯЩИЕ</div><h2 id="detail-subject"></h2></div>
         <div class="sender-row"><div class="avatar" id="sender-avatar"></div><div class="sender-data"><strong id="detail-sender"></strong><small id="detail-recipient"></small></div><time id="detail-date"></time></div>

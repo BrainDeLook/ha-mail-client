@@ -44,9 +44,9 @@ jobs:
           file: ./mail/Dockerfile
           image: ghcr.io/braindelook/ha-mail-client-${{ matrix.arch }}
           image-tags: |
-            0.3.5
+            1.0.0
             latest
-          version: 0.3.5
+          version: 1.0.0
           push: "true"
           cosign: "false"
           cache-gha: "false"
@@ -57,7 +57,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          image="ghcr.io/braindelook/ha-mail-client-${{ matrix.arch }}:0.3.5"
+          image="ghcr.io/braindelook/ha-mail-client-${{ matrix.arch }}:1.0.0"
           data="$(mktemp -d)"
           trap 'docker logs home-mail-smoke 2>/dev/null || true; docker rm -f home-mail-smoke 2>/dev/null || true; rm -rf "$data"' EXIT
           printf '%s\n' '{"gmail_email":"","gmail_app_password":"","sync_interval_minutes":5,"cache_per_folder":50}' > "$data/options.json"
@@ -68,6 +68,8 @@ jobs:
           done
           grep -Fq '"configured":false' "$data/status.json"
           curl -fsS http://127.0.0.1:18099/ | grep -Fq 'Home Mail'
+          curl -fsS http://127.0.0.1:18099/icon.png -o "$data/icon.png"
+          test "$(file -b --mime-type "$data/icon.png")" = image/png
           curl -fsS http://127.0.0.1:18099/app.js | grep -Fq 'home-assistant/subscribe-properties'
           curl -fsS http://127.0.0.1:18099/api/folders | grep -Fq '"folders":[]'
           docker exec home-mail-smoke python -m compileall -q /opt/home-mail
@@ -82,7 +84,7 @@ jobs:
             status="$(curl -sS -o /dev/null -w '%{http_code}' -I \
               -H "Authorization: Bearer ${token}" \
               -H 'Accept: application/vnd.oci.image.index.v1+json,application/vnd.oci.image.manifest.v1+json,application/vnd.docker.distribution.manifest.list.v2+json,application/vnd.docker.distribution.manifest.v2+json' \
-              "https://ghcr.io/v2/${image}/manifests/0.3.5")"
+              "https://ghcr.io/v2/${image}/manifests/1.0.0")"
             if [ "$status" = 200 ]; then break; fi
             sleep 5
           done

@@ -110,7 +110,7 @@ def sync_worker():
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "HomeMail/0.3.5"
+    server_version = "HomeMail/1.0.0"
 
     def log_message(self, format, *args):
         # Avoid logging Ingress tokens, search terms or message details.
@@ -166,6 +166,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.static("dark.css", "text/css; charset=utf-8")
             if url.path == "/app.js":
                 return self.static("app.js", "text/javascript; charset=utf-8")
+            if url.path == "/icon.png":
+                return self.static("icon.png", "image/png")
             if not url.path.startswith("/api/"):
                 return self.reply(404, {"error": "Not found"})
             query = parse_qs(url.query)
