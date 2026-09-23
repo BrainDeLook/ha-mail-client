@@ -1,5 +1,5 @@
 name: Home Mail
-version: "0.3.1"
+version: "0.3.2"
 slug: mail
 description: Lightweight Gmail client for Home Assistant
 url: https://github.com/BrainDeLook/ha-mail-client
@@ -28,6 +28,6 @@ schema:
   gmail_app_password: password
   sync_interval_minutes: int(1,60)
   cache_per_folder: int(10,200)
-  theme: list(system|light|dark)
+  theme: list(system|light|dark|ha_dark)
   show_external_media: bool
   log_level: list(error|warning|info|debug)

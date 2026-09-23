@@ -77,7 +77,7 @@ def options():
     interval = max(1, min(60, int(raw.get("sync_interval_minutes", 5))))
     limit = max(10, min(200, int(raw.get("cache_per_folder", 50))))
     theme = str(raw.get("theme", "system")).lower()
-    if theme not in ("system", "light", "dark"):
+    if theme not in ("system", "light", "dark", "ha_dark"):
         theme = "system"
     log_level = str(raw.get("log_level", "info")).lower()
     if log_level not in ("error", "warning", "info", "debug"):

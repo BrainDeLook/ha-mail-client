@@ -102,3 +102,39 @@ html, body { width: 100%; height: 100%; overflow: hidden; }
 .dark .compose-dialog input, .dark .compose-dialog textarea { background: #172230; }
 .dark .attachment-note { background: #3d3022; border-color: #6d5030; color: #f5c58a; }
 .dark .attachments a { color: #8bc2ff; }
+
+/* Home Assistant's default dark surfaces; keep the existing blue dark theme separate. */
+:root.ha-dark { color: #e1e1e1; background: #111111; }
+.ha-dark .shell, .ha-dark .list-pane, .ha-dark .reading-pane,
+.ha-dark .reader-toolbar { color: #e1e1e1; background: #111111; }
+.ha-dark .sidebar { color: #e1e1e1; background: #1c1c1c; border-color: #ffffff1f; }
+.ha-dark .brand, .ha-dark .list-header, .ha-dark .list-pane,
+.ha-dark .reader-toolbar, .ha-dark .list-meta, .ha-dark .message-card,
+.ha-dark .sender-row { border-color: #ffffff1f; }
+.ha-dark .message-card { color: #e1e1e1; background: #111111; }
+.ha-dark .message-card:hover { background: #282828; }
+.ha-dark .message-card.active { background: #173039; border-left-color: #03a9f4; }
+.ha-dark .message-card.unread .row-sender,
+.ha-dark .message-card.unread .row-subject { color: #f4f4f4; }
+.ha-dark .folder { color: #c4c4c4; }
+.ha-dark .folder:hover { background: #282828; }
+.ha-dark .folder.active { color: #73d8ff; background: #123544; }
+.ha-dark .compose, .ha-dark .send-button { background: #009ac7; }
+.ha-dark .compose:hover, .ha-dark .send-button:hover { background: #007fa6; }
+.ha-dark .brand-mark { background: linear-gradient(145deg, #03a9f4, #009ac7); }
+.ha-dark .search-wrap { color: #9b9b9b; background: #282828; }
+.ha-dark .search-wrap input, .ha-dark .compose-dialog label input,
+.ha-dark .body-label textarea { color: #e1e1e1; }
+.ha-dark .icon, .ha-dark .text-button { color: #c4c4c4; }
+.ha-dark .icon:hover, .ha-dark .text-button:hover { color: #73d8ff; background: #282828; }
+.ha-dark .reader-empty h2, .ha-dark .body-text { color: #e1e1e1; }
+.ha-dark .reader-empty, .ha-dark .row-snippet, .ha-dark .sender-data small,
+.ha-dark .account, .ha-dark .section-title, .ha-dark .eyebrow,
+.ha-dark .list-meta, .ha-dark .row-date, .ha-dark .sender-row time { color: #9b9b9b; }
+.ha-dark .ha-button { color: #e1e1e1; background: #282828; border-color: #ffffff1f; }
+.ha-dark .ha-button:hover { background: #383838; }
+.ha-dark .compose-dialog { color: #e1e1e1; background: #1c1c1c; border-color: #ffffff1f; }
+.ha-dark .dialog-header, .ha-dark .dialog-footer { background: #282828; border-color: #ffffff1f; }
+.ha-dark .compose-dialog label { border-color: #ffffff1f; }
+.ha-dark .compose-dialog input, .ha-dark .compose-dialog textarea { background: #1c1c1c; }
+.ha-dark .attachments a { color: #73d8ff; }

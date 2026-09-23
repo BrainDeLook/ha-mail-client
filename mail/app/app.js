@@ -185,7 +185,11 @@
     $('remote-button').hidden = !message.html || Boolean(message.remoteLoaded);
     if (message.html) {
       const dark = document.documentElement.classList.contains('dark');
-      frame.srcdoc = `<meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'none'; img-src http: https: data:; media-src http: https: data:; style-src 'unsafe-inline'; frame-src 'none'; form-action 'none'"><style>html,body{overflow:hidden}body{font:14px/1.6 -apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;color:${dark ? '#e8edf5' : '#293442'};background:${dark ? '#151d28' : '#fff'};margin:0;word-break:normal;overflow-wrap:normal}img,video{max-width:100%;height:auto}table{max-width:100%;border-collapse:collapse}td,th{padding:4px}a{color:${dark ? '#8bc2ff' : '#176bd7'}}</style>${message.html}`;
+      const haDark = document.documentElement.classList.contains('ha-dark');
+      const textColor = haDark ? '#e1e1e1' : dark ? '#e8edf5' : '#293442';
+      const background = haDark ? '#111111' : dark ? '#151d28' : '#fff';
+      const linkColor = haDark ? '#03a9f4' : dark ? '#8bc2ff' : '#176bd7';
+      frame.srcdoc = `<meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'none'; img-src http: https: data:; media-src http: https: data:; style-src 'unsafe-inline'; frame-src 'none'; form-action 'none'"><style>html,body{overflow:hidden}body{font:14px/1.6 -apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;color:${textColor};background:${background};margin:0;word-break:normal;overflow-wrap:normal}img,video{max-width:100%;height:auto}table{max-width:100%;border-collapse:collapse}td,th{padding:4px}a{color:${linkColor}}</style>${message.html}`;
       frame.addEventListener('load', () => {
         try {
           const doc = frame.contentDocument;
@@ -289,10 +293,14 @@
 
   const darkMedia = matchMedia('(prefers-color-scheme: dark)');
   function applyTheme() {
-    const wasDark = document.documentElement.classList.contains('dark');
-    document.documentElement.classList.toggle('dark', state.theme === 'dark' ||
-      (state.theme === 'system' && darkMedia.matches));
-    if (wasDark !== document.documentElement.classList.contains('dark') && state.current) renderBody(state.current);
+    const root = document.documentElement;
+    const wasDark = root.classList.contains('dark');
+    const wasHaDark = root.classList.contains('ha-dark');
+    const haDark = state.theme === 'ha_dark';
+    const dark = haDark || state.theme === 'dark' || (state.theme === 'system' && darkMedia.matches);
+    root.classList.toggle('dark', dark);
+    root.classList.toggle('ha-dark', haDark);
+    if ((wasDark !== dark || wasHaDark !== haDark) && state.current) renderBody(state.current);
   }
   darkMedia.addEventListener('change', applyTheme);
 
