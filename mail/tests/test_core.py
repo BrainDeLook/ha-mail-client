@@ -1,5 +1,7 @@
 """Offline tests: no Gmail credentials or network needed."""
 
+import base64
+from email.message import EmailMessage
 import json
 from contextlib import closing
 from http.server import ThreadingHTTPServer
@@ -87,23 +89,81 @@ class CoreTests(unittest.TestCase):
     def test_account_switch_clears_old_mail(self):
         with closing(core.connect_db()) as conn:
             core.ensure_account(conn, "test@gmail.com")
-            conn.execute("INSERT INTO messages VALUES(?,?,?,?,?,?,?,?,?,?)",
-                         ("INBOX", 1, "Private", "Sender", "Recipient", "", "", "", "Body", 0))
+            conn.execute("INSERT INTO messages VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                         ("INBOX", 1, "Private", "Sender", "Recipient", "", "", "", "Body", 0, ""))
             conn.commit()
             core.ensure_account(conn, "another@gmail.com")
             self.assertEqual(conn.execute("SELECT COUNT(*) FROM messages").fetchone()[0], 0)
 
     def test_folder_parsing_and_html_plaintext(self):
         folders = core.parse_folders(FakeImap().list()[1])
-        self.assertEqual(folders, [("INBOX", "INBOX"), ("[Gmail]/Sent Mail", "SENT")])
-        record = core.parse_message(SAMPLE, "INBOX", 90393, [])
+        self.assertEqual(folders, [("INBOX", "INBOX", "Входящие"),
+                                   ("[Gmail]/Sent Mail", "SENT", "Sent Mail")])
+        record, parts = core.parse_message(SAMPLE, "INBOX", 90393, [])
         self.assertEqual(record[2], "Hello")
         self.assertIn("Welcome home", record[8])
         self.assertNotIn("<script>", record[8])
 
+    def test_modified_utf7_gmail_folders(self):
+        def encoded(value):
+            return "&" + base64.b64encode(value.encode("utf-16-be")).decode().rstrip("=").replace("/", ",") + "-"
+        important = f'[Gmail]/{encoded("Важное")}'
+        line = f'(\\HasNoChildren \\Important) "/" "{important}"'.encode("ascii")
+        folders = core.parse_folders([line])
+        self.assertEqual(folders[1], (important, "IMPORTANT", "Важное"))
+        self.assertEqual(core.decode_imap_utf7("A&-B"), "A&B")
+
+    def test_sanitized_html_and_inline_media(self):
+        source = ('<p>Hello <img src="cid:photo1" onerror="bad()"> '
+                  '<img src="https://images.example/p.png"><script>alert(1)</script>'
+                  '<a href="javascript:bad()">bad link</a><video src="cid:video1"></video></p>')
+        blocked = core.safe_html(source, "INBOX", 42, {"photo1": 0, "video1": 1})
+        self.assertIn("api/part?folder=INBOX&amp;uid=42&amp;part=0", blocked)
+        self.assertIn("api/part?folder=INBOX&amp;uid=42&amp;part=1", blocked)
+        self.assertNotIn("https://images.example", blocked)
+        self.assertNotIn("onerror", blocked)
+        self.assertNotIn("alert(1)", blocked)
+        self.assertNotIn("javascript:", blocked)
+        allowed = core.safe_html(source, "INBOX", 42, {"photo1": 0}, True)
+        self.assertIn("https://images.example/p.png", allowed)
+
+    def test_mime_cid_image_is_cached(self):
+        mail = EmailMessage()
+        mail["Subject"] = "Photo"
+        mail.set_content("Plain fallback")
+        mail.add_alternative('<p>Inline <img src="cid:photo1"></p>', subtype="html")
+        mail.get_payload()[1].add_related(b"\x89PNG\r\n", maintype="image", subtype="png", cid="<photo1>")
+        record, parts = core.parse_message(mail.as_bytes(), "INBOX", 8, [])
+        self.assertEqual(record[8], "Plain fallback")
+        self.assertIn("cid:photo1", record[10])
+        self.assertEqual(parts[0][0], "image/png")
+        self.assertEqual(parts[0][2], "photo1")
+        self.assertEqual(parts[0][3], b"\x89PNG\r\n")
+
+    def test_upgrade_old_database_schema(self):
+        old = sqlite3.connect(core.DB_FILE)
+        old.executescript("""CREATE TABLE folders(name TEXT PRIMARY KEY,role TEXT NOT NULL,uidvalidity TEXT NOT NULL DEFAULT '');
+            CREATE TABLE messages(folder TEXT,uid INTEGER,subject TEXT,sender TEXT,recipients TEXT,sent_at TEXT,
+            flags TEXT,snippet TEXT,body TEXT,has_attachments INTEGER,PRIMARY KEY(folder,uid));""")
+        old.close()
+        with closing(core.connect_db()) as conn:
+            self.assertIn("label", [row[1] for row in conn.execute("PRAGMA table_info(folders)")])
+            self.assertIn("raw_html", [row[1] for row in conn.execute("PRAGMA table_info(messages)")])
+            self.assertIsNotNone(conn.execute("SELECT name FROM sqlite_master WHERE name='parts'").fetchone())
+
     def test_http_status_and_ingress_assets(self):
         core.OPTIONS_FILE.write_text(json.dumps({"gmail_email": "test@gmail.com",
-            "gmail_app_password": "secret", "sync_interval_minutes": 5, "cache_per_folder": 50}), encoding="utf-8")
+            "gmail_app_password": "secret", "sync_interval_minutes": 5, "cache_per_folder": 50,
+            "theme": "dark"}), encoding="utf-8")
+        with closing(core.connect_db()) as conn:
+            core.ensure_account(conn, "test@gmail.com")
+            conn.execute("INSERT INTO folders(name,role,label) VALUES('INBOX','INBOX','Входящие')")
+            conn.execute("INSERT INTO messages VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                         ("INBOX", 7, "Photo", "Alice", "Test", "", "", "Photo", "Photo", 1,
+                          '<img src="cid:pic"><img src="https://images.example/p.png">'))
+            conn.execute("INSERT INTO parts VALUES(?,?,?,?,?,?,?)",
+                         ("INBOX", 7, 0, "image/png", "photo.png", "pic", b"\x89PNG\r\n"))
+            conn.commit()
         web = ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
         thread = threading.Thread(target=web.serve_forever, daemon=True)
         thread.start()
@@ -114,11 +174,22 @@ class CoreTests(unittest.TestCase):
             value = json.load(response)
             self.assertTrue(value["configured"])
             self.assertEqual(value["email"], "test@gmail.com")
+            self.assertEqual(value["theme"], "dark")
             self.assertIn("frame-ancestors 'self'", response.headers["Content-Security-Policy"])
         with urlopen(url + "/") as response:
             self.assertIn(b"Home Mail", response.read())
         with urlopen(url + "/api/folders") as response:
-            self.assertEqual(json.load(response)["folders"], [])
+            self.assertEqual(json.load(response)["folders"][0]["label"], "Входящие")
+        with urlopen(url + "/api/message?folder=INBOX&uid=7") as response:
+            message = json.load(response)["message"]
+            self.assertIn("api/part", message["html"])
+            self.assertNotIn("https://images.example", message["html"])
+            self.assertNotIn("raw_html", message)
+        with urlopen(url + "/api/message?folder=INBOX&uid=7&remote=1") as response:
+            self.assertIn("https://images.example", json.load(response)["message"]["html"])
+        with urlopen(url + "/api/part?folder=INBOX&uid=7&part=0") as response:
+            self.assertEqual(response.headers["Content-Type"], "image/png")
+            self.assertEqual(response.read(), b"\x89PNG\r\n")
         request = Request(url + "/api/sync", data=b"{}", headers={"Content-Type": "application/json"})
         with urlopen(request) as response:
             self.assertEqual(response.status, 202)

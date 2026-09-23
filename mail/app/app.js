@@ -1,7 +1,7 @@
 (() => {
   'use strict';
   const $ = (id) => document.getElementById(id);
-  const state = {folder: 'INBOX', folders: [], messages: [], current: null, search: ''};
+  const state = {folder: 'INBOX', folders: [], messages: [], current: null, search: '', theme: 'system'};
   const shell = document.querySelector('.shell');
   const base = new URL('./', location.href);
   let toastTimer;
@@ -26,7 +26,8 @@
   }
 
   function folderLabel(folder) {
-    return ({INBOX: 'Входящие', SENT: 'Отправленные', DRAFTS: 'Черновики', JUNK: 'Спам', TRASH: 'Корзина'})[folder.role] || folder.name;
+    return ({INBOX: 'Входящие', IMPORTANT: 'Важное', FLAGGED: 'Помеченные', ALL: 'Вся почта',
+      SENT: 'Отправленные', DRAFTS: 'Черновики', JUNK: 'Спам', TRASH: 'Корзина'})[folder.role] || folder.label || folder.name;
   }
 
   function formatDate(date) {
@@ -54,7 +55,8 @@
       const button = makeButton('folder' + (state.folder === folder.name ? ' active' : ''), '', () => openFolder(folder.name));
       const glyph = document.createElement('span');
       glyph.className = 'glyph';
-      glyph.textContent = ({INBOX: '▣', SENT: '↗', DRAFTS: '▤', JUNK: '⚠', TRASH: '⌫'})[folder.role] || '▧';
+      glyph.textContent = ({INBOX: '▣', IMPORTANT: '◆', FLAGGED: '☆', ALL: '▦',
+        SENT: '↗', DRAFTS: '▤', JUNK: '⚠', TRASH: '⌫'})[folder.role] || '▧';
       const text = document.createElement('span');
       text.textContent = folderLabel(folder);
       button.append(glyph, text);
@@ -108,13 +110,13 @@
     $('search').value = '';
     $('reader-empty').hidden = false;
     $('message-detail').hidden = true;
-    for (const id of ['unread-button', 'star-button', 'reply-button']) $(id).hidden = true;
+    for (const id of ['remote-button', 'unread-button', 'star-button', 'reply-button']) $(id).hidden = true;
     shell.classList.remove('show-sidebar', 'show-reader');
     const folder = state.folders.find((item) => item.name === name);
     $('folder-title').textContent = folder ? folderLabel(folder) : name;
     renderFolders();
     await loadMessages();
-    if (folder?.role === 'OTHER') {
+    if (folder && !['INBOX', 'SENT', 'DRAFTS', 'JUNK', 'TRASH'].includes(folder.role)) {
       api('api/sync', {folder: name}).then(() => toast('Загружаю эту папку…')).catch((error) => toast(error.message));
     }
   }
@@ -141,15 +143,49 @@
       $('detail-sender').textContent = message.sender;
       $('detail-recipient').textContent = `Кому: ${message.recipients}`;
       $('detail-date').textContent = formatDate(message.sent_at);
-      $('detail-body').textContent = message.body;
+      renderBody(message);
       $('sender-avatar').textContent = shortSender(message.sender).slice(0, 1).toUpperCase();
-      $('attachment-note').hidden = !message.has_attachments;
+      renderAttachments(message);
       for (const id of ['unread-button', 'star-button', 'reply-button']) $(id).hidden = false;
       $('star-button').textContent = message.flags.includes('\\Flagged') ? '★' : '☆';
       shell.classList.add('show-reader');
       renderMessages();
       if (!message.flags.includes('\\Seen')) await changeFlag('\\Seen', true);
     } catch (error) { toast(error.message); }
+  }
+
+  function renderBody(message) {
+    const text = $('detail-body');
+    const frame = $('detail-html');
+    text.textContent = message.body;
+    text.hidden = Boolean(message.html);
+    frame.hidden = !message.html;
+    $('remote-button').hidden = !message.html || Boolean(message.remoteLoaded);
+    if (message.html) {
+      const dark = document.documentElement.classList.contains('dark');
+      frame.srcdoc = `<meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src http: https: data:; media-src http: https: data:; style-src 'unsafe-inline'; frame-src 'none'; form-action 'none'"><style>body{font:14px/1.6 -apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;color:${dark ? '#e8edf5' : '#293442'};background:${dark ? '#151d28' : '#fff'};margin:0;overflow-wrap:anywhere}img,video{max-width:100%;height:auto}table{max-width:100%;border-collapse:collapse}td,th{padding:4px}a{color:${dark ? '#8bc2ff' : '#176bd7'}}</style>${message.html}`;
+      frame.addEventListener('load', () => {
+        try { frame.style.height = `${Math.max(200, frame.contentDocument.body.scrollHeight + 30)}px`; }
+        catch { frame.style.height = '700px'; }
+      }, {once: true});
+    } else {
+      frame.removeAttribute('srcdoc');
+    }
+  }
+
+  function renderAttachments(message) {
+    const box = $('attachments');
+    box.replaceChildren();
+    for (const part of message.parts || []) {
+      const link = document.createElement('a');
+      link.href = new URL(`api/part?folder=${encodeURIComponent(message.folder)}&uid=${message.uid}&part=${part.part_id}`, base).href;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      link.textContent = `↧ ${part.filename || 'Вложение'} · ${part.content_type}`;
+      box.append(link);
+    }
+    box.hidden = !box.childElementCount;
+    $('attachment-note').hidden = !message.has_attachments || Boolean(box.childElementCount);
   }
 
   async function changeFlag(flag, enabled) {
@@ -183,6 +219,8 @@
     try {
       const status = await api('api/status');
       $('account').textContent = status.email || 'Настройте Gmail в аддоне';
+      state.theme = status.theme || 'system';
+      applyTheme();
       if (!status.configured) $('sync-state').textContent = 'Нужны настройки';
       else if (status.syncing) $('sync-state').textContent = 'Синхронизация…';
       else if (status.last_error) $('sync-state').textContent = 'Ошибка синхронизации';
@@ -196,8 +234,29 @@
     } catch (error) { $('sync-state').textContent = 'Нет связи'; }
   }
 
+  const darkMedia = matchMedia('(prefers-color-scheme: dark)');
+  function applyTheme() {
+    const wasDark = document.documentElement.classList.contains('dark');
+    document.documentElement.classList.toggle('dark', state.theme === 'dark' ||
+      (state.theme === 'system' && darkMedia.matches));
+    if (wasDark !== document.documentElement.classList.contains('dark') && state.current) renderBody(state.current);
+  }
+  darkMedia.addEventListener('change', applyTheme);
+
   $('compose-button').addEventListener('click', () => showCompose());
   $('reply-button').addEventListener('click', () => showCompose(true));
+  $('remote-button').addEventListener('click', async () => {
+    if (!state.current) return;
+    try {
+      const uid = state.current.uid;
+      const folder = state.folder;
+      const result = await api(`api/message?folder=${encodeURIComponent(folder)}&uid=${uid}&remote=1`);
+      if (state.current?.uid !== uid || state.folder !== folder) return;
+      state.current.html = result.message.html;
+      state.current.remoteLoaded = true;
+      renderBody(state.current);
+    } catch (error) { toast(error.message); }
+  });
   $('close-compose').addEventListener('click', () => $('compose-dialog').close());
   $('star-button').addEventListener('click', () => changeFlag('\\Flagged', !state.current?.flags.includes('\\Flagged')));
   $('unread-button').addEventListener('click', () => changeFlag('\\Seen', false));
@@ -217,10 +276,12 @@
     finally { $('send-button').disabled = false; }
   });
 
-  if (window.parent !== window && location.pathname.includes('/api/hassio_ingress/')) {
+  $('ha-button').addEventListener('click', () => {
+    if (window.parent !== window) window.parent.postMessage({type: 'home-assistant/toggle-menu'}, location.origin);
+    else location.assign('/');
+  });
+  if (window.parent !== window) {
     const origin = location.origin;
-    $('ha-button').hidden = false;
-    $('ha-button').addEventListener('click', () => window.parent.postMessage({type: 'home-assistant/toggle-menu'}, origin));
     window.parent.postMessage({type: 'home-assistant/subscribe-properties', kioskMode: true}, origin);
     window.addEventListener('pagehide', () => window.parent.postMessage({type: 'home-assistant/unsubscribe-properties'}, origin));
   }

@@ -1,0 +1,54 @@
+.mail-frame {
+  width: 100%;
+  min-height: 400px;
+  border: 0;
+  margin-top: 26px;
+  background: transparent;
+}
+.attachments { margin-top: 26px; border-top: 1px solid #e6eaf0; padding-top: 15px; }
+.attachments a {
+  display: block;
+  color: #176bd7;
+  text-decoration: none;
+  padding: 7px 0;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+.attachments a:hover { text-decoration: underline; }
+:root.dark {
+  color-scheme: dark;
+  color: #e8edf5;
+  background: #111823;
+}
+.dark .shell, .dark .list-pane, .dark .reading-pane, .dark .reader-toolbar {
+  background: #151d28;
+  color: #e8edf5;
+}
+.dark .sidebar { background: #1b2532; border-color: #303c4d; }
+.dark .list-pane, .dark .reader-toolbar { border-color: #2d3948; }
+.dark .list-meta, .dark .message-card, .dark .sender-row { border-color: #2c3746; }
+.dark .message-card { background: #151d28; color: #d9e2ee; }
+.dark .message-card:hover { background: #202d3d; }
+.dark .message-card.active { background: #193451; }
+.dark .message-card.unread .row-sender,
+.dark .message-card.unread .row-subject { color: #f3f7fd; }
+.dark .folder { color: #bbc8d8; }
+.dark .folder:hover { background: #263344; }
+.dark .folder.active { background: #234361; color: #95caff; }
+.dark .search-wrap { background: #263241; }
+.dark .search-wrap input, .dark .compose-dialog label input,
+.dark .body-label textarea { color: #ecf2fa; }
+.dark .icon, .dark .text-button { color: #b8c7d8; }
+.dark .icon:hover, .dark .text-button:hover { background: #263649; color: #8cc3ff; }
+.dark .reader-empty h2, .dark .body-text { color: #d0d9e5; }
+.dark .reader-empty, .dark .row-snippet, .dark .sender-data small,
+.dark .account, .dark .section-title, .dark .eyebrow,
+.dark .list-meta, .dark .row-date, .dark .sender-row time { color: #8fa0b3; }
+.dark .ha-button { background: #263445; border-color: #405064; color: #f0f5fc; }
+.dark .ha-button:hover { background: #30516c; }
+.dark .compose-dialog { background: #172230; border-color: #405064; color: #e8edf5; }
+.dark .dialog-header, .dark .dialog-footer { background: #202d3c; border-color: #38485a; }
+.dark .compose-dialog label { border-color: #344252; }
+.dark .compose-dialog input, .dark .compose-dialog textarea { background: #172230; }
+.dark .attachment-note { background: #3d3022; border-color: #6d5030; color: #f5c58a; }
+.dark .attachments a { color: #8bc2ff; }

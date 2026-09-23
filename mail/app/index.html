@@ -6,6 +6,7 @@
   <meta name="color-scheme" content="light">
   <title>Home Mail</title>
   <link rel="stylesheet" href="app.css">
+  <link rel="stylesheet" href="dark.css">
   <script src="app.js" defer></script>
 </head>
 <body>
@@ -16,7 +17,7 @@
       <div class="section-title">Ящики</div>
       <nav id="folders" aria-label="Почтовые папки"></nav>
       <div class="sidebar-bottom">
-        <button class="ha-button" id="ha-button" type="button" hidden><span class="ha-icon">⌂</span> Home Assistant <span class="chevron">›</span></button>
+        <button class="ha-button" id="ha-button" type="button"><span class="ha-icon">⌂</span> Home Assistant <span class="chevron">›</span></button>
         <div class="account" id="account">Настройте Gmail в аддоне</div>
       </div>
     </aside>
@@ -34,6 +35,7 @@
       <div class="reader-toolbar">
         <button class="icon mobile-back" id="back-button" aria-label="К списку">‹</button>
         <div class="toolbar-spacer"></div>
+        <button class="text-button" id="remote-button" hidden>Показать внешние медиа</button>
         <button class="icon" id="unread-button" title="Отметить непрочитанным" aria-label="Отметить непрочитанным" hidden>◌</button>
         <button class="icon" id="star-button" title="Пометить" aria-label="Пометить" hidden>☆</button>
         <button class="text-button" id="reply-button" hidden>Ответить ↩</button>
@@ -43,7 +45,9 @@
         <div class="detail-top"><div class="eyebrow" id="detail-folder">ВХОДЯЩИЕ</div><h2 id="detail-subject"></h2></div>
         <div class="sender-row"><div class="avatar" id="sender-avatar"></div><div class="sender-data"><strong id="detail-sender"></strong><small id="detail-recipient"></small></div><time id="detail-date"></time></div>
         <div class="body-text" id="detail-body"></div>
-        <p class="attachment-note" id="attachment-note" hidden>В письме есть вложения. Их просмотр появится в следующей версии.</p>
+        <iframe class="mail-frame" id="detail-html" title="Содержимое письма" sandbox="allow-popups allow-popups-to-escape-sandbox" hidden></iframe>
+        <div class="attachments" id="attachments" hidden></div>
+        <p class="attachment-note" id="attachment-note" hidden>Некоторые вложения слишком велики для локального кэша.</p>
       </article>
     </section>
   </div>

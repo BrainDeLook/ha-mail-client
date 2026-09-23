@@ -11,7 +11,7 @@ import sqlite3
 import smtplib
 import threading
 from contextlib import closing
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, quote, urlsplit
 
 import core
 
@@ -63,7 +63,7 @@ def sync_worker():
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "HomeMail/0.1.0"
+    server_version = "HomeMail/0.2.0"
 
     def log_message(self, format, *args):
         # Avoid logging Ingress tokens, search terms or message details.
@@ -75,7 +75,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer")
-        self.send_header("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'self'; base-uri 'none'; form-action 'none'")
+        self.send_header("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' http: https: data:; media-src 'self' http: https: data:; frame-src 'self' about:; connect-src 'self'; frame-ancestors 'self'; object-src 'none'; base-uri 'none'; form-action 'none'")
 
     def reply(self, code, value):
         payload = json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
@@ -88,6 +88,17 @@ class Handler(BaseHTTPRequestHandler):
         payload = (ROOT / name).read_bytes()
         self.send_response(200)
         self.common_headers(content_type, len(payload))
+        self.end_headers()
+        self.wfile.write(payload)
+
+    def part(self, row):
+        content_type = row["content_type"] if row["content_type"] in core.INLINE_MEDIA_TYPES else "application/octet-stream"
+        payload = row["content"]
+        self.send_response(200)
+        self.common_headers(content_type, len(payload))
+        if content_type == "application/octet-stream":
+            filename = row["filename"] or "attachment"
+            self.send_header("Content-Disposition", "attachment; filename=\"attachment\"; filename*=UTF-8''" + quote(filename))
         self.end_headers()
         self.wfile.write(payload)
 
@@ -104,6 +115,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.static("index.html", "text/html; charset=utf-8")
             if url.path == "/app.css":
                 return self.static("app.css", "text/css; charset=utf-8")
+            if url.path == "/dark.css":
+                return self.static("dark.css", "text/css; charset=utf-8")
             if url.path == "/app.js":
                 return self.static("app.js", "text/javascript; charset=utf-8")
             if not url.path.startswith("/api/"):
@@ -113,16 +126,25 @@ class Handler(BaseHTTPRequestHandler):
             with closing(conn):
                 if url.path == "/api/status":
                     return self.reply(200, {"email": cfg["email"], "configured": bool(cfg["email"] and cfg["password"]),
+                                            "theme": cfg["theme"],
                                             "last_sync": core.get_meta(conn, "last_sync"),
                                             "last_error": core.get_meta(conn, "last_error"),
                                             "syncing": SYNC_STATE["running"]})
                 if url.path == "/api/folders":
-                    rows = conn.execute("""SELECT f.name,f.role,COUNT(m.uid) AS total,
+                    rows = conn.execute("""SELECT f.name,f.role,f.label,COUNT(m.uid) AS total,
                         COALESCE(SUM(CASE WHEN m.flags NOT LIKE '%\\Seen%' THEN 1 ELSE 0 END),0) AS unread
                         FROM folders f LEFT JOIN messages m ON m.folder=f.name
-                        GROUP BY f.name ORDER BY CASE f.role WHEN 'INBOX' THEN 0 WHEN 'SENT' THEN 1
-                        WHEN 'DRAFTS' THEN 2 WHEN 'JUNK' THEN 3 WHEN 'TRASH' THEN 4 ELSE 5 END,f.name""").fetchall()
+                        GROUP BY f.name ORDER BY CASE f.role WHEN 'INBOX' THEN 0 WHEN 'IMPORTANT' THEN 1
+                        WHEN 'FLAGGED' THEN 2 WHEN 'ALL' THEN 3 WHEN 'SENT' THEN 4
+                        WHEN 'DRAFTS' THEN 5 WHEN 'JUNK' THEN 6 WHEN 'TRASH' THEN 7 ELSE 8 END,f.label""").fetchall()
                     return self.reply(200, {"folders": [dict(row) for row in rows]})
+                if url.path == "/api/part":
+                    folder = query.get("folder", [""])[0]
+                    uid = int(query.get("uid", ["0"])[0])
+                    part_id = int(query.get("part", ["-1"])[0])
+                    row = conn.execute("SELECT content_type,filename,content FROM parts WHERE folder=? AND uid=? AND part_id=?",
+                                       (folder, uid, part_id)).fetchone()
+                    return self.part(row) if row else self.reply(404, {"error": "Media not cached"})
                 if url.path in ("/api/messages", "/api/message"):
                     folder = query.get("folder", ["INBOX"])[0]
                     if len(folder) > 255 or not conn.execute("SELECT 1 FROM folders WHERE name=?", (folder,)).fetchone():
@@ -139,8 +161,20 @@ class Handler(BaseHTTPRequestHandler):
                                 FROM messages WHERE folder=? ORDER BY uid DESC LIMIT 200""", (folder,)).fetchall()
                         return self.reply(200, {"messages": [dict(row) for row in rows]})
                     uid = int(query.get("uid", ["0"])[0])
-                    row = conn.execute("SELECT * FROM messages WHERE folder=? AND uid=?", (folder, uid)).fetchone()
-                    return self.reply(200, {"message": dict(row)}) if row else self.reply(404, {"error": "Message is not cached"})
+                    row = conn.execute("""SELECT folder,uid,subject,sender,recipients,sent_at,flags,snippet,body,
+                        has_attachments,raw_html FROM messages WHERE folder=? AND uid=?""", (folder, uid)).fetchone()
+                    if not row:
+                        return self.reply(404, {"error": "Message is not cached"})
+                    message = dict(row)
+                    raw_html = message.pop("raw_html") or ""
+                    parts = conn.execute("SELECT part_id,filename,content_type,cid FROM parts WHERE folder=? AND uid=? ORDER BY part_id",
+                                         (folder, uid)).fetchall()
+                    message["parts"] = [{"part_id": part["part_id"], "filename": part["filename"],
+                                         "content_type": part["content_type"]} for part in parts if part["filename"]]
+                    cids = {part["cid"]: part["part_id"] for part in parts if part["cid"]}
+                    message["html"] = core.safe_html(raw_html, folder, uid, cids,
+                                                      query.get("remote", ["0"])[0] == "1") if raw_html else ""
+                    return self.reply(200, {"message": message})
             return self.reply(404, {"error": "Not found"})
         except (ValueError, KeyError) as exc:
             return self.reply(400, {"error": str(exc)})

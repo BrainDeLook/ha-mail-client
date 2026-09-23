@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import email
+import base64
 from email import policy
 from contextlib import closing
 import hashlib
+import html
 from html.parser import HTMLParser
 import imaplib
 import json
@@ -19,6 +21,7 @@ from email.header import decode_header, make_header
 from email.message import EmailMessage, Message
 from email.utils import getaddresses, parsedate_to_datetime
 from datetime import datetime, timezone
+from urllib.parse import unquote, urlencode, urlsplit
 
 
 DATA_DIR = Path(os.environ.get("HOME_MAIL_DATA", "/data"))
@@ -26,7 +29,12 @@ OPTIONS_FILE = Path(os.environ.get("HOME_MAIL_OPTIONS", "/data/options.json"))
 DB_FILE = DATA_DIR / "mail.db"
 MAX_TEXT = 500_000
 MAX_MAIL_BYTES = 12_000_000
-FOLDER_ROLES = ("INBOX", "SENT", "DRAFTS", "JUNK", "TRASH")
+MAX_PART_BYTES = 10_000_000
+FOLDER_ROLES = ("INBOX", "IMPORTANT", "FLAGGED", "ALL", "SENT", "DRAFTS", "JUNK", "TRASH")
+AUTO_SYNC_ROLES = ("INBOX", "SENT", "DRAFTS", "JUNK", "TRASH")
+INLINE_MEDIA_TYPES = ("image/png", "image/jpeg", "image/gif", "image/webp",
+                      "audio/mpeg", "audio/ogg", "audio/wav", "audio/mp4",
+                      "video/mp4", "video/webm")
 
 
 class TextFromHtml(HTMLParser):
@@ -68,7 +76,11 @@ def options():
     password = str(raw.get("gmail_app_password", ""))
     interval = max(1, min(60, int(raw.get("sync_interval_minutes", 5))))
     limit = max(10, min(200, int(raw.get("cache_per_folder", 50))))
-    return {"email": address, "password": password, "interval": interval, "limit": limit}
+    theme = str(raw.get("theme", "system")).lower()
+    if theme not in ("system", "light", "dark"):
+        theme = "system"
+    return {"email": address, "password": password, "interval": interval, "limit": limit,
+            "theme": theme}
 
 
 def connect_db():
@@ -77,20 +89,34 @@ def connect_db():
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA busy_timeout=30000")
+    conn.execute("PRAGMA foreign_keys=ON")
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS folders (
-            name TEXT PRIMARY KEY, role TEXT NOT NULL, uidvalidity TEXT NOT NULL DEFAULT ''
+            name TEXT PRIMARY KEY, role TEXT NOT NULL, uidvalidity TEXT NOT NULL DEFAULT '',
+            label TEXT NOT NULL DEFAULT ''
         );
         CREATE TABLE IF NOT EXISTS messages (
             folder TEXT NOT NULL, uid INTEGER NOT NULL, subject TEXT NOT NULL,
             sender TEXT NOT NULL, recipients TEXT NOT NULL, sent_at TEXT NOT NULL,
             flags TEXT NOT NULL, snippet TEXT NOT NULL, body TEXT NOT NULL,
-            has_attachments INTEGER NOT NULL DEFAULT 0,
+            has_attachments INTEGER NOT NULL DEFAULT 0, raw_html TEXT,
             PRIMARY KEY (folder, uid)
+        );
+        CREATE TABLE IF NOT EXISTS parts (
+            folder TEXT NOT NULL, uid INTEGER NOT NULL, part_id INTEGER NOT NULL,
+            content_type TEXT NOT NULL, filename TEXT NOT NULL, cid TEXT NOT NULL,
+            content BLOB NOT NULL,
+            PRIMARY KEY(folder,uid,part_id),
+            FOREIGN KEY(folder,uid) REFERENCES messages(folder,uid) ON DELETE CASCADE
         );
         CREATE INDEX IF NOT EXISTS messages_order ON messages(folder, uid DESC);
     """)
+    if "label" not in {row[1] for row in conn.execute("PRAGMA table_info(folders)")}:
+        conn.execute("ALTER TABLE folders ADD COLUMN label TEXT NOT NULL DEFAULT ''")
+    if "raw_html" not in {row[1] for row in conn.execute("PRAGMA table_info(messages)")}:
+        conn.execute("ALTER TABLE messages ADD COLUMN raw_html TEXT")
+    conn.commit()
     return conn
 
 
@@ -114,8 +140,23 @@ def ensure_account(conn, address):
         conn.commit()
 
 
+def decode_imap_utf7(value):
+    """Decode the modified UTF-7 mailbox names used by Gmail's IMAP LIST."""
+    def replacement(match):
+        chunk = match.group(1)
+        if not chunk:
+            return "&"
+        try:
+            encoded = chunk.replace(",", "/")
+            encoded += "=" * (-len(encoded) % 4)
+            return base64.b64decode(encoded).decode("utf-16-be")
+        except (ValueError, UnicodeError):
+            return match.group(0)
+    return re.sub(r"&([A-Za-z0-9+,]*)-", replacement, value)
+
+
 def parse_folders(lines):
-    result = [("INBOX", "INBOX")]
+    result = [("INBOX", "INBOX", "Входящие")]
     for line in lines or []:
         if not isinstance(line, bytes):
             continue
@@ -129,28 +170,38 @@ def parse_folders(lines):
         if name.upper() == "INBOX":
             continue
         role = "OTHER"
-        for candidate, flag in (("SENT", b"\\SENT"), ("DRAFTS", b"\\DRAFTS"),
-                                ("JUNK", b"\\JUNK"), ("TRASH", b"\\TRASH")):
+        for candidate, flag in (("IMPORTANT", b"\\IMPORTANT"), ("FLAGGED", b"\\FLAGGED"),
+                                ("ALL", b"\\ALL"), ("SENT", b"\\SENT"),
+                                ("DRAFTS", b"\\DRAFTS"), ("JUNK", b"\\JUNK"),
+                                ("TRASH", b"\\TRASH")):
             if flag in attributes:
                 role = candidate
                 break
-        result.append((name, role))
+        label = decode_imap_utf7(name)
+        if label.startswith("[Gmail]/"):
+            label = label[len("[Gmail]/"):]
+        result.append((name, role, label))
     order = {role: i for i, role in enumerate(FOLDER_ROLES)}
-    return sorted(result, key=lambda item: (order.get(item[1], 10), item[0].lower()))
+    return sorted(result, key=lambda item: (order.get(item[1], 10), item[2].lower()))
 
 
 def text_body(message: Message):
     plain = []
     rich = []
+    raw_html = []
+    parts = []
     attachment = False
     for part in message.walk():
         if part.is_multipart():
             continue
         disposition = part.get_content_disposition()
-        if disposition == "attachment" or part.get_filename():
+        content_type = part.get_content_type().lower()
+        if disposition == "attachment" or part.get_filename() or content_type not in ("text/plain", "text/html"):
             attachment = True
-            continue
-        if part.get_content_type() not in ("text/plain", "text/html"):
+            payload = part.get_payload(decode=True) or b""
+            if len(payload) <= MAX_PART_BYTES:
+                cid = (part.get("Content-ID") or "").strip().strip("<>").lower()
+                parts.append((content_type, decode_mime(part.get_filename() or ""), cid, payload))
             continue
         payload = part.get_payload(decode=True) or b""
         charset = part.get_content_charset() or "utf-8"
@@ -158,19 +209,20 @@ def text_body(message: Message):
             text = payload.decode(charset, errors="replace")
         except LookupError:
             text = payload.decode("utf-8", errors="replace")
-        if part.get_content_type() == "text/plain":
+        if content_type == "text/plain":
             plain.append(text)
         else:
+            raw_html.append(text[:MAX_TEXT])
             parser = TextFromHtml()
             parser.feed(text)
             rich.append(parser.text())
     value = "\n\n".join(plain or rich).strip()
-    return value[:MAX_TEXT], attachment
+    return value[:MAX_TEXT], attachment, "\n".join(raw_html)[:MAX_TEXT], parts
 
 
 def parse_message(raw, folder, uid, flags):
     message = email.message_from_bytes(raw, policy=policy.default)
-    body, attachment = text_body(message)
+    body, attachment, raw_html, parts = text_body(message)
     try:
         date = parsedate_to_datetime(str(message.get("Date", "")))
         if date.tzinfo is None:
@@ -178,9 +230,101 @@ def parse_message(raw, folder, uid, flags):
         sent_at = date.isoformat()
     except (TypeError, ValueError, IndexError):
         sent_at = ""
-    return (folder, uid, decode_mime(message.get("Subject")),
-            decode_mime(message.get("From")), decode_mime(message.get("To")),
-            sent_at, " ".join(flags), " ".join(body.split())[:180], body, int(attachment))
+    record = (folder, uid, decode_mime(message.get("Subject")),
+              decode_mime(message.get("From")), decode_mime(message.get("To")),
+              sent_at, " ".join(flags), " ".join(body.split())[:180], body, int(attachment), raw_html)
+    return record, parts
+
+
+class SafeMailHtml(HTMLParser):
+    """Small allowlist renderer; email HTML is never trusted as application HTML."""
+
+    TAGS = {"a", "audio", "b", "blockquote", "br", "code", "div", "em", "h1", "h2", "h3",
+            "h4", "hr", "i", "img", "li", "ol", "p", "pre", "s", "small", "source", "span",
+            "strong", "table", "tbody", "td", "th", "thead", "tr", "u", "ul", "video"}
+    VOID = {"br", "hr", "img", "source"}
+    HIDDEN = {"script", "style", "head", "iframe", "object", "embed", "form", "svg", "math", "template"}
+
+    def __init__(self, folder, uid, cid_parts, allow_remote):
+        super().__init__(convert_charrefs=True)
+        self.folder = folder
+        self.uid = uid
+        self.cid_parts = cid_parts
+        self.allow_remote = allow_remote
+        self.parts = []
+        self.hidden = 0
+
+    def media_url(self, value):
+        if not value:
+            return ""
+        value = value.strip()
+        if value.lower().startswith("cid:"):
+            cid = unquote(value[4:]).strip("<>").lower()
+            part_id = self.cid_parts.get(cid)
+            return "api/part?" + urlencode({"folder": self.folder, "uid": self.uid, "part": part_id}) if part_id is not None else ""
+        parsed = urlsplit(value)
+        if self.allow_remote and parsed.scheme.lower() == "https" and parsed.netloc:
+            return value
+        if value.lower().startswith(("data:image/png;base64,", "data:image/jpeg;base64,",
+                                     "data:image/gif;base64,", "data:image/webp;base64,")) and len(value) <= 200_000:
+            return value
+        return ""
+
+    def handle_starttag(self, tag, attrs):
+        tag = tag.lower()
+        if tag in self.HIDDEN:
+            self.hidden += 1
+            return
+        if self.hidden or tag not in self.TAGS:
+            return
+        values = dict(attrs)
+        safe = []
+        for key in ("alt", "title"):
+            if values.get(key):
+                safe.append(f' {key}="{html.escape(values[key], quote=True)}"')
+        for key in ("width", "height", "colspan", "rowspan"):
+            if values.get(key) and values[key].isdigit():
+                safe.append(f' {key}="{min(2000, int(values[key]))}"')
+        if tag == "a":
+            href = values.get("href", "").strip()
+            parsed = urlsplit(href)
+            if parsed.scheme.lower() in ("https", "http", "mailto") and (parsed.netloc or parsed.scheme.lower() == "mailto"):
+                safe.append(f' href="{html.escape(href, quote=True)}" target="_blank" rel="noopener noreferrer"')
+        if tag in ("img", "audio", "video", "source"):
+            source = self.media_url(values.get("src", ""))
+            if not source and tag in ("img", "source"):
+                if tag == "img":
+                    self.parts.append(f'<span>[{html.escape(values.get("alt") or "Внешнее изображение скрыто")}]</span>')
+                return
+            if source:
+                safe.append(f' src="{html.escape(source, quote=True)}"')
+            if tag in ("audio", "video"):
+                safe.append(" controls preload=\"none\"")
+        self.parts.append(f"<{tag}{''.join(safe)}>")
+
+    def handle_startendtag(self, tag, attrs):
+        self.handle_starttag(tag, attrs)
+        if tag.lower() not in self.VOID:
+            self.handle_endtag(tag)
+
+    def handle_endtag(self, tag):
+        tag = tag.lower()
+        if tag in self.HIDDEN:
+            self.hidden = max(0, self.hidden - 1)
+        elif not self.hidden and tag in self.TAGS and tag not in self.VOID:
+            self.parts.append(f"</{tag}>")
+
+    def handle_data(self, data):
+        if not self.hidden:
+            self.parts.append(html.escape(data))
+
+    def render(self, source):
+        self.feed(source)
+        return "".join(self.parts)[:1_000_000]
+
+
+def safe_html(source, folder, uid, cid_parts, allow_remote=False):
+    return SafeMailHtml(folder, uid, cid_parts, allow_remote).render(source)
 
 
 def _literal(response):
@@ -190,7 +334,7 @@ def _literal(response):
     raise RuntimeError("Gmail did not return the message body")
 
 
-def sync_folder(imap, conn, folder, role, limit):
+def sync_folder(imap, conn, folder, role, label, limit):
     status, count_data = imap.select('"' + folder.replace('"', '\\"') + '"', readonly=True)
     if status != "OK":
         raise RuntimeError("Cannot select Gmail folder")
@@ -202,7 +346,7 @@ def sync_folder(imap, conn, folder, role, limit):
     old = conn.execute("SELECT uidvalidity FROM folders WHERE name=?", (folder,)).fetchone()
     if old and old[0] != validity:
         conn.execute("DELETE FROM messages WHERE folder=?", (folder,))
-    conn.execute("INSERT INTO folders(name,role,uidvalidity) VALUES(?,?,?) ON CONFLICT(name) DO UPDATE SET role=excluded.role,uidvalidity=excluded.uidvalidity", (folder, role, validity))
+    conn.execute("INSERT INTO folders(name,role,uidvalidity,label) VALUES(?,?,?,?) ON CONFLICT(name) DO UPDATE SET role=excluded.role,uidvalidity=excluded.uidvalidity,label=excluded.label", (folder, role, validity, label))
     conn.commit()
     if count == 0:
         conn.execute("DELETE FROM messages WHERE folder=?", (folder,))
@@ -229,8 +373,8 @@ def sync_folder(imap, conn, folder, role, limit):
     wanted = [entry[0] for entry in entries]
     fetched = 0
     for uid, flags, size in entries:
-        exists = conn.execute("SELECT 1 FROM messages WHERE folder=? AND uid=?", (folder, uid)).fetchone()
-        if exists:
+        exists = conn.execute("SELECT raw_html FROM messages WHERE folder=? AND uid=?", (folder, uid)).fetchone()
+        if exists and exists[0] is not None:
             conn.execute("UPDATE messages SET flags=? WHERE folder=? AND uid=?", (" ".join(flags), folder, uid))
             continue
         if size > MAX_MAIL_BYTES:
@@ -238,8 +382,11 @@ def sync_folder(imap, conn, folder, role, limit):
         status, response = imap.uid("FETCH", str(uid), "(BODY.PEEK[])")
         if status != "OK":
             raise RuntimeError("Cannot fetch Gmail message")
-        parsed = parse_message(_literal(response), folder, uid, flags)
-        conn.execute("INSERT OR REPLACE INTO messages VALUES(?,?,?,?,?,?,?,?,?,?)", parsed)
+        parsed, parts = parse_message(_literal(response), folder, uid, flags)
+        conn.execute("INSERT OR REPLACE INTO messages VALUES(?,?,?,?,?,?,?,?,?,?,?)", parsed)
+        for index, (content_type, filename, cid, content) in enumerate(parts):
+            conn.execute("INSERT INTO parts(folder,uid,part_id,content_type,filename,cid,content) VALUES(?,?,?,?,?,?,?)",
+                         (folder, uid, index, content_type, filename, cid, content))
         fetched += 1
     if wanted:
         placeholders = ",".join("?" for _ in wanted)
@@ -261,15 +408,15 @@ def sync_all(cfg, requested_folder=None):
             raise RuntimeError("Cannot list Gmail folders")
         folders = parse_folders(lines)
         with closing(connect_db()) as conn:
-            for folder, role in folders:
-                conn.execute("INSERT INTO folders(name,role) VALUES(?,?) ON CONFLICT(name) DO UPDATE SET role=excluded.role", (folder, role))
+            for folder, role, label in folders:
+                conn.execute("INSERT INTO folders(name,role,label) VALUES(?,?,?) ON CONFLICT(name) DO UPDATE SET role=excluded.role,label=excluded.label", (folder, role, label))
             conn.commit()
-            target = [(name, role) for name, role in folders if name == requested_folder] if requested_folder else [item for item in folders if item[1] in FOLDER_ROLES]
+            target = [item for item in folders if item[0] == requested_folder] if requested_folder else [item for item in folders if item[1] in AUTO_SYNC_ROLES]
             if requested_folder and not target:
                 raise ValueError("Unknown folder")
             total = 0
-            for name, role in target:
-                total += sync_folder(imap, conn, name, role, cfg["limit"])
+            for name, role, label in target:
+                total += sync_folder(imap, conn, name, role, label, cfg["limit"])
                 set_meta(conn, "last_sync", datetime.now(timezone.utc).isoformat())
                 set_meta(conn, "last_error", "")
                 conn.commit()
