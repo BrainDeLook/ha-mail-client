@@ -8,7 +8,17 @@ html, body { width: 100%; height: 100%; overflow: hidden; }
 .reader-toolbar { padding: 0 28px; }
 .brand, .list-header { border-bottom: 1px solid #e8e9ed; }
 .reader-empty { height: calc(100% - 64px); }
-.compose { flex: 0 0 42px; margin-top: 12px; }
+.compose {
+  flex: 0 0 42px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  margin-top: 12px;
+  padding-inline: 12px;
+  text-align: center;
+}
+.compose span { display: grid; place-items: center; width: 20px; height: 20px; margin: 0; line-height: 1; }
 .section-title { padding-top: 24px; }
 .list-pane, .reading-pane { min-height: 0; }
 .reading-pane { overflow-y: auto; overscroll-behavior-y: contain; }
@@ -25,6 +35,8 @@ html, body { width: 100%; height: 100%; overflow: hidden; }
   width: 228px;
   box-shadow: 0 4px 16px #0002;
 }
+.ha-button .chevron { display: grid; place-items: center; flex: 0 0 18px; width: 18px; height: 18px; line-height: 1; }
+.ha-button .chevron svg { display: block; }
 @media (max-width: 900px) { .ha-button { left: 8px; width: 189px; } }
 @media (max-width: 700px) { .ha-button { width: 234px; } }
 @media (max-width: 700px) {
