@@ -307,6 +307,20 @@ class CoreTests(unittest.TestCase):
         self.assertNotIn('alert(1)', injection)
         self.assertNotIn('<script', injection)
 
+    def test_important_and_responsive_email_css(self):
+        source = ('<style>.button{background:#238636 !important;color:white !important}'
+                  '@media screen and (max-width:600px){html body .hero{width:100% !important;'
+                  'max-width:320px !important}}'
+                  '@import url(https://bad.example/extra.css);'
+                  '</style><a class="button" href="https://github.com">View run</a>'
+                  '<img class="hero" src="https://example.com/hero.png">')
+        result = core.safe_html(source, "INBOX", 4, {}, True)
+        self.assertIn('.mail-content .button{background:#238636!important;color:white!important}', result)
+        self.assertIn('@media (max-width:600px){.mail-content .hero{width:100%!important;'
+                      'max-width:320px!important}}', result)
+        self.assertNotIn('@import', result)
+        self.assertIn('src="https://example.com/hero.png"', result)
+
     def test_external_media_can_be_disabled_in_addon_options(self):
         core.OPTIONS_FILE.write_text(json.dumps({"show_external_media": False}), encoding="utf-8")
         self.assertFalse(core.options()["external_media"])
@@ -400,7 +414,7 @@ class CoreTests(unittest.TestCase):
         config = (app.parent / "config.yaml").read_text(encoding="utf-8")
         self.assertNotIn('stage: experimental', config)
         self.assertNotIn('stage: stable', config)  # Home Assistant defaults to stable.
-        self.assertIn('version: "1.1.9"', config)
+        self.assertIn('version: "1.1.10"', config)
 
     def test_mime_cid_image_is_cached(self):
         mail = EmailMessage()

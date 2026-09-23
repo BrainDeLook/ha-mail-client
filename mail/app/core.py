@@ -277,32 +277,55 @@ class SafeMailHtml(HTMLParser):
     STYLE_PROPERTIES = {"background", "background-color", "background-image", "background-position",
                         "background-repeat", "background-size", "border", "border-bottom", "border-collapse",
                         "border-color", "border-left", "border-radius", "border-right", "border-top",
-                        "border-width", "color", "display", "font", "font-family", "font-size",
+                        "border-width", "border-spacing", "box-sizing", "clear", "color", "display", "float",
+                        "font", "font-family", "font-size",
                         "font-style", "font-weight", "height", "letter-spacing", "line-height",
                         "margin", "margin-bottom", "margin-left", "margin-right", "margin-top",
                         "max-width", "min-width", "padding", "padding-bottom", "padding-left",
-                        "padding-right", "padding-top", "text-align", "text-decoration", "vertical-align",
-                        "white-space", "width"}
+                        "padding-right", "padding-top", "table-layout", "text-align", "text-decoration",
+                        "text-indent", "text-transform", "vertical-align", "white-space", "width",
+                        "word-break", "word-wrap"}
 
     def safe_stylesheet(self, source):
+        # Like Tachyon, keep sender CSS scoped to the message. Parse blocks so
+        # responsive @media rules stay conditional rather than leaking out.
+        source = re.sub(r"/\*.*?\*/", "", source[:100_000], flags=re.S)
+        source = source.replace("<!--", "").replace("-->", "")
         rules = []
-        # Only simple selectors can reach the isolated message body. At-rules,
-        # imports, pseudo-selectors and browser-wide selectors are discarded.
-        for selector, declarations in re.findall(r"([^{}]+)\{([^{}]*)\}", source[:100_000]):
+        cursor = 0
+        while len(rules) < 200:
+            opening = source.find("{", cursor)
+            if opening < 0:
+                break
+            depth, closing = 1, opening + 1
+            while closing < len(source) and depth:
+                if source[closing] == "{":
+                    depth += 1
+                elif source[closing] == "}":
+                    depth -= 1
+                closing += 1
+            if depth:
+                break
+            selector = source[cursor:opening].strip()
+            declarations = source[opening + 1:closing - 1]
+            cursor = closing
+            media = re.fullmatch(r"@media\s+(?:(?:only\s+)?screen\s+and\s+)?"
+                                 r"\((min|max)-width\s*:\s*(\d{1,4})px\)", selector, re.I)
+            if media:
+                nested = self.safe_stylesheet(declarations)
+                if nested:
+                    rules.append(f"@media ({media.group(1).lower()}-width:{media.group(2)}px){{{nested}}}")
+                continue
             names = []
             for item in selector.split(","):
                 item = item.strip()
                 if not item or len(item) > 180 or not re.fullmatch(r"[A-Za-z0-9_#.\-\s>+*]+", item):
                     continue
-                if item.lower() in ("html", "body"):
-                    names.append(".mail-content")
-                else:
-                    names.append(".mail-content " + item)
+                item = re.sub(r"^(?:(?:html|body)\b\s*)+", "", item, flags=re.I).strip()
+                names.append(".mail-content" + (" " + item if item else ""))
             style = self.safe_style(declarations)
             if names and style:
                 rules.append(",".join(names) + "{" + style + "}")
-            if len(rules) >= 200:
-                break
         return "".join(rules)
 
     def safe_style(self, value):
@@ -312,17 +335,20 @@ class SafeMailHtml(HTMLParser):
             name, content = name.strip().lower(), content.strip()
             if not separator or name not in self.STYLE_PROPERTIES or len(content) > 1000:
                 continue
+            important = bool(re.search(r"\s*!important\s*$", content, re.I))
+            content = re.sub(r"\s*!important\s*$", "", content, flags=re.I).strip()
+            priority = "!important" if important else ""
             if name in ("background", "background-image") and "url(" in content.lower():
                 pattern = r"url\(\s*(['\"]?)([^'\"()]+)\1\s*\)"
                 match = re.search(pattern, content, re.I) if name == "background" else re.fullmatch(pattern, content, re.I)
                 if match:
                     source = self.media_url(match.group(2))
                     if source:
-                        declarations.append(f"background-image:url({json.dumps(source)})")
+                        declarations.append(f"background-image:url({json.dumps(source)}){priority}")
                     if name == "background":
                         color = re.search(r"#[0-9a-fA-F]{3,8}\b", content[:match.start()] + content[match.end():])
                         if color:
-                            declarations.append("background-color:" + color.group())
+                            declarations.append("background-color:" + color.group() + priority)
                 continue
             if len(content) > 160:
                 continue
@@ -330,7 +356,7 @@ class SafeMailHtml(HTMLParser):
                 continue
             if re.search(r"url\s*\(|expression\s*\(|var\s*\(|(?:image|attr)\s*\(", content, re.I):
                 continue
-            declarations.append(f"{name}:{content}")
+            declarations.append(f"{name}:{content}{priority}")
         return ";".join(declarations)
 
     def __init__(self, folder, uid, cid_parts, allow_remote):
