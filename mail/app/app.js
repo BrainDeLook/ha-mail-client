@@ -2,10 +2,19 @@
   'use strict';
   const $ = (id) => document.getElementById(id);
   const state = {folder: 'INBOX', folders: [], messages: [], current: null, search: '', theme: 'system', viewMode: 'split', externalMedia: true,
-    cacheRevision: null, listRequest: 0, statusBusy: false};
+    cacheRevision: null, listRequest: 0, messageRequest: 0, statusBusy: false};
   const shell = document.querySelector('.shell');
   const base = new URL('./', location.href);
   let toastTimer;
+  let routeRequest = 0;
+  const initialRoute = history.state?.homeMail ? history.state : {homeMail: true, folder: 'INBOX', uid: null, depth: 0};
+  history.replaceState(initialRoute, '');
+
+  function recordRoute(folder, uid) {
+    const previous = history.state;
+    if (previous?.homeMail && previous.folder === folder && previous.uid === uid) return;
+    history.pushState({homeMail: true, folder, uid, depth: (previous?.depth || 0) + 1}, '');
+  }
 
   function setSidebarOpen(open) {
     shell.classList.toggle('show-sidebar', open);
@@ -137,7 +146,12 @@
     renderFolders();
   }
 
-  async function openFolder(name) {
+  async function openFolder(name, recordHistory = true) {
+    ++state.messageRequest;
+    if (recordHistory) {
+      ++routeRequest;
+      recordRoute(name, null);
+    }
     state.folder = name;
     state.current = null;
     state.search = '';
@@ -175,11 +189,16 @@
     renderMessages();
   }
 
-  async function openMessage(uid) {
+  async function openMessage(uid, recordHistory = true) {
     try {
       const folder = state.folder;
+      if (recordHistory) {
+        ++routeRequest;
+        recordRoute(folder, uid);
+      }
+      const request = ++state.messageRequest;
       const result = await api(`api/message?folder=${encodeURIComponent(folder)}&uid=${uid}&remote=${state.externalMedia ? 1 : 0}`);
-      if (state.folder !== folder) return;
+      if (state.folder !== folder || request !== state.messageRequest) return;
       const message = result.message;
       message.remoteLoaded = state.externalMedia;
       state.current = message;
@@ -351,7 +370,19 @@
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape' && shell.classList.contains('show-sidebar')) setSidebarOpen(false);
   });
-  $('back-button').addEventListener('click', () => shell.classList.remove('show-reader'));
+  $('back-button').addEventListener('click', () => {
+    if (history.state?.homeMail && history.state.depth > 0) history.back();
+    else shell.classList.remove('show-reader');
+  });
+  window.addEventListener('popstate', async (event) => {
+    const route = event.state;
+    if (!route?.homeMail) return;
+    const request = ++routeRequest;
+    try {
+      await openFolder(route.folder, false);
+      if (request === routeRequest && route.uid !== null) await openMessage(route.uid, false);
+    } catch (error) { toast(error.message); }
+  });
   $('sync-button').addEventListener('click', async () => {
     try {
       const result = await api('api/sync', {});
@@ -382,7 +413,10 @@
     window.addEventListener('pagehide', () => window.parent.postMessage({type: 'home-assistant/unsubscribe-properties'}, origin));
   }
 
-  refreshFolders().then(() => openFolder('INBOX')).catch((error) => toast(error.message));
+  refreshFolders().then(async () => {
+    await openFolder(initialRoute.folder, false);
+    if (initialRoute.uid !== null) await openMessage(initialRoute.uid, false);
+  }).catch((error) => toast(error.message));
   refreshStatus();
   setInterval(refreshStatus, 8000);
 })();

@@ -44,9 +44,9 @@ jobs:
           file: ./mail/Dockerfile
           image: ghcr.io/braindelook/ha-mail-client-${{ matrix.arch }}
           image-tags: |
-            1.1.0
+            1.1.1
             latest
-          version: 1.1.0
+          version: 1.1.1
           push: "true"
           cosign: "false"
           cache-gha: "false"
@@ -57,7 +57,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          image="ghcr.io/braindelook/ha-mail-client-${{ matrix.arch }}:1.1.0"
+          image="ghcr.io/braindelook/ha-mail-client-${{ matrix.arch }}:1.1.1"
           data="$(mktemp -d)"
           trap 'docker logs home-mail-smoke 2>/dev/null || true; docker rm -f home-mail-smoke 2>/dev/null || true; rm -rf "$data"' EXIT
           printf '%s\n' '{"gmail_email":"","gmail_app_password":"","sync_interval_minutes":5,"cache_per_folder":50}' > "$data/options.json"
@@ -84,7 +84,7 @@ jobs:
             status="$(curl -sS -o /dev/null -w '%{http_code}' -I \
               -H "Authorization: Bearer ${token}" \
               -H 'Accept: application/vnd.oci.image.index.v1+json,application/vnd.oci.image.manifest.v1+json,application/vnd.docker.distribution.manifest.list.v2+json,application/vnd.docker.distribution.manifest.v2+json' \
-              "https://ghcr.io/v2/${image}/manifests/1.1.0")"
+              "https://ghcr.io/v2/${image}/manifests/1.1.1")"
             if [ "$status" = 200 ]; then break; fi
             sleep 5
           done

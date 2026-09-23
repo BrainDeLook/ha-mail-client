@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="mail/logo.png" width="500" alt="Home Mail">
+  <img src="assets/home-mail-wordmark.png" width="500" alt="Home Mail">
 </p>
 
 <h1 align="center">Home Mail для Home Assistant</h1>

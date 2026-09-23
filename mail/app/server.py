@@ -110,7 +110,7 @@ def sync_worker():
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "HomeMail/1.1.0"
+    server_version = "HomeMail/1.1.1"
 
     def log_message(self, format, *args):
         # Avoid logging Ingress tokens, search terms or message details.

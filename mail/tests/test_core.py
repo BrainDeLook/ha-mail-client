@@ -78,10 +78,12 @@ class FakeImap:
 class CoreTests(unittest.TestCase):
     def test_store_branding_assets(self):
         addon = Path(__file__).parents[1]
-        for filename, expected_size in (("icon.png", (128, 128)), ("logo.png", (500, 200))):
+        for filename, expected_size in (("icon.png", (128, 128)), ("logo.png", (128, 128))):
             payload = (addon / filename).read_bytes()
             self.assertEqual(payload[:8], b"\x89PNG\r\n\x1a\n")
             self.assertEqual(struct.unpack(">II", payload[16:24]), expected_size)
+        self.assertEqual((addon / "logo.png").read_bytes(), (addon / "icon.png").read_bytes())
+        self.assertTrue((addon.parent / "assets" / "home-mail-wordmark.png").is_file())
 
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(dir=Path(__file__).parent)
@@ -354,11 +356,14 @@ class CoreTests(unittest.TestCase):
         self.assertIn('<img src="icon.png" alt="">', markup)
         self.assertIn('glyph.append(folderIcon(folder.role))', script)
         self.assertNotIn("INBOX: '▣'", script)
+        self.assertIn("history.pushState({homeMail: true, folder, uid", script)
+        self.assertIn("window.addEventListener('popstate'", script)
+        self.assertIn("history.back()", script)
         self.assertEqual((app / "icon.png").read_bytes(), (app.parent / "icon.png").read_bytes())
         config = (app.parent / "config.yaml").read_text(encoding="utf-8")
         self.assertNotIn('stage: experimental', config)
         self.assertNotIn('stage: stable', config)  # Home Assistant defaults to stable.
-        self.assertIn('version: "1.1.0"', config)
+        self.assertIn('version: "1.1.1"', config)
 
     def test_mime_cid_image_is_cached(self):
         mail = EmailMessage()
