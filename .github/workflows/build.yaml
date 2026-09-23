@@ -14,6 +14,10 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+      - name: Validate Home Assistant metadata
+        uses: frenck/action-addon-linter@v2
+        with:
+          path: ./mail
       - name: Test Python cache and message parsing
         run: PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s mail/tests -v
       - name: Check JavaScript
@@ -67,3 +71,19 @@ jobs:
           curl -fsS http://127.0.0.1:18099/app.js | grep -Fq 'home-assistant/subscribe-properties'
           curl -fsS http://127.0.0.1:18099/api/folders | grep -Fq '"folders":[]'
           docker exec home-mail-smoke python -m compileall -q /opt/home-mail
+      - name: Verify anonymous GHCR manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          image="braindelook/ha-mail-client-${{ matrix.arch }}"
+          status=""
+          for attempt in $(seq 1 12); do
+            token="$(curl -fsS "https://ghcr.io/token?scope=repository:${image}:pull&service=ghcr.io" | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])')"
+            status="$(curl -sS -o /dev/null -w '%{http_code}' -I \
+              -H "Authorization: Bearer ${token}" \
+              -H 'Accept: application/vnd.oci.image.manifest.v1+json,application/vnd.docker.distribution.manifest.v2+json' \
+              "https://ghcr.io/v2/${image}/manifests/0.1.0")"
+            if [ "$status" = 200 ]; then break; fi
+            sleep 5
+          done
+          test "$status" = 200
