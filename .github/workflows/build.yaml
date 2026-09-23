@@ -1,0 +1,69 @@
+name: Build Home Mail images
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test Python cache and message parsing
+        run: PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s mail/tests -v
+      - name: Check JavaScript
+        run: node --check mail/app/app.js
+
+  build:
+    needs: validate
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and publish image
+        uses: home-assistant/builder/actions/build-image@2026.06.0
+        with:
+          arch: ${{ matrix.arch }}
+          context: ./mail
+          file: ./mail/Dockerfile
+          image: ghcr.io/braindelook/ha-mail-client-${{ matrix.arch }}
+          image-tags: |
+            0.1.0
+            latest
+          version: 0.1.0
+          push: "true"
+          cosign: "false"
+          cache-gha: "false"
+          container-registry-password: ${{ secrets.GITHUB_TOKEN }}
+          build-args: |
+            BUILD_FROM=python:3.13-alpine
+      - name: Smoke test HTTP and Ingress assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          image="ghcr.io/braindelook/ha-mail-client-${{ matrix.arch }}:0.1.0"
+          data="$(mktemp -d)"
+          trap 'docker logs home-mail-smoke 2>/dev/null || true; docker rm -f home-mail-smoke 2>/dev/null || true; rm -rf "$data"' EXIT
+          printf '%s\n' '{"gmail_email":"","gmail_app_password":"","sync_interval_minutes":5,"cache_per_folder":50}' > "$data/options.json"
+          docker run -d --name home-mail-smoke -v "$data:/data" -p 127.0.0.1:18099:8099 "$image"
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:18099/api/status > "$data/status.json"; then break; fi
+            sleep 1
+          done
+          grep -Fq '"configured":false' "$data/status.json"
+          curl -fsS http://127.0.0.1:18099/ | grep -Fq 'Home Mail'
+          curl -fsS http://127.0.0.1:18099/app.js | grep -Fq 'home-assistant/subscribe-properties'
+          curl -fsS http://127.0.0.1:18099/api/folders | grep -Fq '"folders":[]'
+          docker exec home-mail-smoke python -m compileall -q /opt/home-mail

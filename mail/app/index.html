@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Home Mail</title>
+  <link rel="stylesheet" href="app.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar" id="sidebar">
+      <div class="brand"><div class="brand-mark">✉</div><div><strong>Mail</strong><small>Home Assistant</small></div></div>
+      <button class="compose" id="compose-button" type="button"><span>✎</span> Новое письмо</button>
+      <div class="section-title">Ящики</div>
+      <nav id="folders" aria-label="Почтовые папки"></nav>
+      <div class="sidebar-bottom">
+        <button class="ha-button" id="ha-button" type="button" hidden><span class="ha-icon">⌂</span> Home Assistant <span class="chevron">›</span></button>
+        <div class="account" id="account">Настройте Gmail в аддоне</div>
+      </div>
+    </aside>
+    <main class="list-pane" id="list-pane">
+      <header class="list-header">
+        <button class="icon mobile-menu" id="menu-button" aria-label="Показать папки">☰</button>
+        <div><div class="eyebrow">ПОЧТА</div><h1 id="folder-title">Входящие</h1></div>
+        <button class="icon" id="sync-button" title="Проверить почту" aria-label="Проверить почту">↻</button>
+      </header>
+      <div class="search-wrap"><span>⌕</span><input id="search" type="search" placeholder="Поиск в папке" aria-label="Поиск в папке"></div>
+      <div class="list-meta"><span id="list-count">0 писем</span><span id="sync-state">—</span></div>
+      <div class="message-list" id="message-list" role="list"></div>
+    </main>
+    <section class="reading-pane" id="reading-pane" aria-label="Просмотр письма">
+      <div class="reader-toolbar">
+        <button class="icon mobile-back" id="back-button" aria-label="К списку">‹</button>
+        <div class="toolbar-spacer"></div>
+        <button class="icon" id="unread-button" title="Отметить непрочитанным" aria-label="Отметить непрочитанным" hidden>◌</button>
+        <button class="icon" id="star-button" title="Пометить" aria-label="Пометить" hidden>☆</button>
+        <button class="text-button" id="reply-button" hidden>Ответить ↩</button>
+      </div>
+      <div id="reader-empty" class="reader-empty"><div class="empty-art">✉</div><h2>Выберите письмо</h2><p>Последние сообщения уже доступны в локальном кэше.</p></div>
+      <article class="message-detail" id="message-detail" hidden>
+        <div class="detail-top"><div class="eyebrow" id="detail-folder">ВХОДЯЩИЕ</div><h2 id="detail-subject"></h2></div>
+        <div class="sender-row"><div class="avatar" id="sender-avatar"></div><div class="sender-data"><strong id="detail-sender"></strong><small id="detail-recipient"></small></div><time id="detail-date"></time></div>
+        <div class="body-text" id="detail-body"></div>
+        <p class="attachment-note" id="attachment-note" hidden>В письме есть вложения. Их просмотр появится в следующей версии.</p>
+      </article>
+    </section>
+  </div>
+  <dialog id="compose-dialog" class="compose-dialog">
+    <form id="compose-form">
+      <div class="dialog-header"><h2>Новое письмо</h2><button type="button" class="icon" id="close-compose" aria-label="Закрыть">×</button></div>
+      <label>Кому<input id="compose-to" type="text" autocomplete="off" required></label>
+      <label>Тема<input id="compose-subject" type="text" maxlength="1000"></label>
+      <label class="body-label">Сообщение<textarea id="compose-body" required></textarea></label>
+      <div class="dialog-footer"><span id="send-status"></span><button type="submit" class="send-button" id="send-button">Отправить ↑</button></div>
+    </form>
+  </dialog>
+  <div class="toast" id="toast" role="status" hidden></div>
+</body>
+</html>

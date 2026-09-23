@@ -1,0 +1,29 @@
+name: Home Mail
+version: "0.1.0"
+slug: mail
+description: Lightweight Gmail client for Home Assistant
+url: https://github.com/BrainDeLook/ha-mail-client
+image: ghcr.io/braindelook/ha-mail-client-{arch}
+startup: application
+stage: experimental
+init: false
+arch:
+  - amd64
+  - aarch64
+panel_icon: mdi:email-outline
+panel_title: Mail
+panel_admin: false
+ingress: true
+ingress_port: 8099
+ingress_entry: /
+backup: cold
+options:
+  gmail_email: ""
+  gmail_app_password: ""
+  sync_interval_minutes: 5
+  cache_per_folder: 50
+schema:
+  gmail_email: str
+  gmail_app_password: password
+  sync_interval_minutes: int(1,60)
+  cache_per_folder: int(10,200)
