@@ -19,9 +19,14 @@ class Node {
       }
     };
   }
-  addEventListener(name, handler) { this.events.set(name, handler); }
-  removeEventListener(name) { this.events.delete(name); }
-  fire(name, event = {}) { return this.events.get(name)?.(event); }
+  addEventListener(name, handler) {
+    if (!this.events.has(name)) this.events.set(name, []);
+    this.events.get(name).push(handler);
+  }
+  removeEventListener(name, handler) {
+    this.events.set(name, (this.events.get(name) || []).filter((item) => item !== handler));
+  }
+  fire(name, event = {}) { for (const handler of this.events.get(name) || []) handler(event); }
   setAttribute() {}
   replaceChildren() {}
   append() {}
@@ -57,6 +62,7 @@ const context = {
   setInterval() {},
   setTimeout(callback) { timers.push(callback); return timers.length; },
   clearTimeout(id) { if (id) timers[id - 1] = null; },
+  requestAnimationFrame() { return 1; }, cancelAnimationFrame() {},
   ResizeObserver: class { observe() {} disconnect() {} }
 };
 const script = fs.readFileSync(path.join(__dirname, '../app/app.js'), 'utf8');
@@ -117,17 +123,23 @@ const mailDocument = new Node();
 mailDocument.body = new Node();
 mailDocument.body.scrollWidth = 620;
 mailDocument.body.scrollHeight = 1800;
+mailDocument.body.getBoundingClientRect = () => ({height: 930});
 mailDocument.documentElement = new Node();
 mailDocument.documentElement.scrollWidth = 620;
 mailFrame.contentDocument = mailDocument;
 window.renderBodyForTest({body: '', html: '<table width="620"><tr><td>Long mail</td></tr></table>', remoteLoaded: false});
 mailFrame.fire('load');
 assert.match(mailFrame.srcdoc, /name="viewport"/);
-assert.match(mailFrame.srcdoc, /html\.mobile-mail.*overflow-y:auto/);
+assert.match(mailFrame.srcdoc, /html\.mobile-mail.*touch-action:none/);
 assert.equal(mailDocument.documentElement.classList.contains('mobile-mail'), true);
 assert.equal(mailDocument.body.style.zoom, String(320 / 620), 'wide email fits phone width');
-assert.equal(mailFrame.style.height, '560px', 'long email scrolls inside a viewport-sized frame');
+assert.equal(mailFrame.style.height, '960px', 'scaled email has its full visible height');
 assert.equal(mailDocument.events.has('touchmove'), true, 'swipe-back still handles HTML content');
+readingPane.scrollTop = 20;
+mailDocument.fire('touchstart', {touches: [{clientX: 150, clientY: 200}]});
+mailDocument.fire('touchmove', {touches: [{clientX: 152, clientY: 120}], preventDefault() {}});
+assert.equal(readingPane.scrollTop, 100, 'vertical touch over HTML scrolls the whole message');
+mailDocument.fire('touchend');
 mailDocument.fire('touchstart', {touches: [{clientX: 150, clientY: 200}]});
 mailDocument.fire('touchmove', {touches: [{clientX: 250, clientY: 202}], preventDefault() {}});
 assert.equal(readingPane.style.transform, 'translate3d(100px,0,0)', 'swipe still moves HTML email');
@@ -137,6 +149,7 @@ context.matchMedia = () => ({matches: false, addEventListener() {}});
 mailFrame.mailResizeHandler();
 assert.equal(mailDocument.documentElement.classList.contains('mobile-mail'), false, 'desktop email keeps its layout');
 assert.equal(mailDocument.body.style.zoom, '', 'desktop email is not scaled');
+assert.equal(mailFrame.style.height, '1830px', 'desktop email keeps its original full height');
 
 async function startupFolder(defaultRole, folders) {
   const nodes = new Map();

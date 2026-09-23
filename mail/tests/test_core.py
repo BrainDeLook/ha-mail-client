@@ -367,7 +367,9 @@ class CoreTests(unittest.TestCase):
         self.assertIn("installSwipeBack(doc)", script)
         self.assertIn('html.mobile-mail', script)
         self.assertIn('body.style.zoom = String(width / naturalWidth)', script)
-        self.assertIn('Math.min(contentHeight, mobileHeight)', script)
+        self.assertIn('body.getBoundingClientRect().height', script)
+        self.assertIn('touch-action:none!important', script)
+        self.assertIn("$('reading-pane').scrollTop += delta", script)
         self.assertNotIn("$('reading-pane').scrollTop += lastTouchY - nextY", script)
         self.assertIn("reader.style.transform = `translate3d(${start.distance}px,0,0)`", script)
         self.assertNotIn('touch.clientX <= 96', script)
@@ -378,7 +380,7 @@ class CoreTests(unittest.TestCase):
         config = (app.parent / "config.yaml").read_text(encoding="utf-8")
         self.assertNotIn('stage: experimental', config)
         self.assertNotIn('stage: stable', config)  # Home Assistant defaults to stable.
-        self.assertIn('version: "1.1.6"', config)
+        self.assertIn('version: "1.1.7"', config)
 
     def test_mime_cid_image_is_cached(self):
         mail = EmailMessage()

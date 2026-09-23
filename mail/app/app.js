@@ -227,6 +227,7 @@
       for (const id of ['unread-button', 'star-button', 'reply-button']) $(id).hidden = false;
       setStarred(message.flags.includes('\\Flagged'));
       shell.classList.add('show-reader');
+      $('reading-pane').scrollTop = 0;
       renderMessages();
       if (!message.flags.includes('\\Seen')) await changeFlag('\\Seen', true);
     } catch (error) { toast(error.message); }
@@ -236,6 +237,7 @@
     const text = $('detail-body');
     const frame = $('detail-html');
     frame.mailObserver?.disconnect();
+    frame.mailCancelGlide?.();
     if (frame.mailResizeHandler) window.removeEventListener('resize', frame.mailResizeHandler);
     frame.style.height = '';
     text.textContent = message.body;
@@ -244,11 +246,12 @@
     $('remote-button').hidden = !message.html || Boolean(message.remoteLoaded);
     if (message.html) {
       const remote = message.remoteLoaded ? 'http: https: ' : '';
-      frame.srcdoc = `<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'none'; img-src 'self' ${remote}data:; media-src 'self' ${remote}data:; style-src 'unsafe-inline'; frame-src 'none'; form-action 'none'"><style>html,body{overflow:hidden}body{font:14px/1.6 Arial,sans-serif;color:#202124;background:#fff;margin:0;word-break:normal;overflow-wrap:normal}img,video{max-width:100%}table{max-width:100%}a{color:#1a73e8}html.mobile-mail,html.mobile-mail body{overflow-x:hidden!important;overflow-y:auto!important;touch-action:pan-y}html.mobile-mail body{overflow-wrap:anywhere}html.mobile-mail img,html.mobile-mail video{max-width:100%!important;height:auto!important}html.mobile-mail pre{white-space:pre-wrap;overflow-wrap:anywhere}</style>${message.html}`;
+      frame.srcdoc = `<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'none'; img-src 'self' ${remote}data:; media-src 'self' ${remote}data:; style-src 'unsafe-inline'; frame-src 'none'; form-action 'none'"><style>html,body{overflow:hidden}body{font:14px/1.6 Arial,sans-serif;color:#202124;background:#fff;margin:0;word-break:normal;overflow-wrap:normal}img,video{max-width:100%}table{max-width:100%}a{color:#1a73e8}html.mobile-mail,html.mobile-mail body{overflow:hidden!important;touch-action:none!important}html.mobile-mail body{overflow-wrap:anywhere}html.mobile-mail img,html.mobile-mail video{max-width:100%!important;height:auto!important}html.mobile-mail pre{white-space:pre-wrap;overflow-wrap:anywhere}</style>${message.html}`;
       frame.addEventListener('load', () => {
         try {
           const doc = frame.contentDocument;
           const body = doc.body;
+          installSwipeBack(doc);
           let fittedWidth = 0;
           const resize = () => {
             const mobile = matchMedia('(max-width: 700px)').matches;
@@ -268,9 +271,8 @@
               body.style.width = '';
               fittedWidth = 0;
             }
-            const contentHeight = Math.max(200, body.scrollHeight + 30);
-            const mobileHeight = Math.max(240, Math.round(window.innerHeight * 0.7));
-            frame.style.height = `${mobile ? Math.min(contentHeight, mobileHeight) : contentHeight}px`;
+            const contentHeight = mobile ? body.getBoundingClientRect().height : body.scrollHeight;
+            frame.style.height = `${Math.max(200, Math.ceil(contentHeight) + 30)}px`;
           };
           resize();
           frame.mailObserver = new ResizeObserver(resize);
@@ -279,11 +281,65 @@
           frame.mailResizeHandler = () => { fittedWidth = 0; resize(); };
           window.addEventListener('resize', frame.mailResizeHandler);
           doc.addEventListener('wheel', (event) => {
-            if (matchMedia('(max-width: 700px)').matches || event.ctrlKey || event.metaKey || !event.deltaY) return;
+            if (event.ctrlKey || event.metaKey || !event.deltaY) return;
             event.preventDefault();
             $('reading-pane').scrollTop += event.deltaY;
           }, {passive: false});
-          installSwipeBack(doc);
+          let scrollTouch = null;
+          let glideFrame = 0;
+          frame.mailCancelGlide = () => cancelAnimationFrame(glideFrame);
+          const touchX = (touch) => touch.screenX ?? touch.clientX;
+          const touchY = (touch) => touch.screenY ?? touch.clientY;
+          doc.addEventListener('touchstart', (event) => {
+            cancelAnimationFrame(glideFrame);
+            if (event.touches.length !== 1 || !matchMedia('(max-width: 700px)').matches) {
+              scrollTouch = null;
+              return;
+            }
+            const touch = event.touches[0];
+            scrollTouch = {x: touchX(touch), firstY: touchY(touch), y: touchY(touch),
+              time: Date.now(), velocity: 0, vertical: false};
+          }, {passive: true});
+          doc.addEventListener('touchmove', (event) => {
+            if (!scrollTouch || event.touches.length !== 1) return;
+            const touch = event.touches[0];
+            const x = touchX(touch);
+            const y = touchY(touch);
+            const dx = x - scrollTouch.x;
+            const dy = y - scrollTouch.firstY;
+            if (!scrollTouch.vertical) {
+              if (Math.abs(dx) > 12 && Math.abs(dx) > Math.abs(dy) * 1.2) {
+                scrollTouch = null;
+                return;
+              }
+              if (Math.abs(dy) <= 8 || Math.abs(dy) <= Math.abs(dx)) return;
+              scrollTouch.vertical = true;
+            }
+            const elapsed = Math.max(1, Date.now() - scrollTouch.time);
+            const delta = scrollTouch.y - y;
+            $('reading-pane').scrollTop += delta;
+            scrollTouch.velocity = scrollTouch.velocity * 0.6 + (delta / elapsed) * 0.4;
+            scrollTouch.y = y;
+            scrollTouch.time = Date.now();
+            event.preventDefault();
+          }, {passive: false});
+          doc.addEventListener('touchend', () => {
+            if (scrollTouch?.vertical && Math.abs(scrollTouch.velocity) > 0.08) {
+              let velocity = Math.max(-2.5, Math.min(2.5, scrollTouch.velocity));
+              let previous = Date.now();
+              const glide = () => {
+                const now = Date.now();
+                const elapsed = Math.min(32, Math.max(1, now - previous));
+                previous = now;
+                $('reading-pane').scrollTop += velocity * elapsed;
+                velocity *= Math.pow(0.92, elapsed / 16);
+                if (Math.abs(velocity) > 0.03) glideFrame = requestAnimationFrame(glide);
+              };
+              glideFrame = requestAnimationFrame(glide);
+            }
+            scrollTouch = null;
+          }, {passive: true});
+          doc.addEventListener('touchcancel', () => { scrollTouch = null; }, {passive: true});
         } catch { frame.style.height = '70dvh'; }
       }, {once: true});
     } else {
@@ -394,6 +450,7 @@
   function returnToList() {
     if (!shell.classList.contains('show-reader')) return;
     resetSwipeVisual();
+    $('detail-html').mailCancelGlide?.();
     ++routeRequest;
     ++state.messageRequest;
     state.current = null;
