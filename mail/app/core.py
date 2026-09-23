@@ -420,6 +420,27 @@ def _prune_cached(conn, folder, limit):
                         (folder, folder, limit)).rowcount > 0
 
 
+def refresh_cached_flags(imap, conn, folder, limit):
+    """Refresh Gmail flags without fetching cached message bodies again."""
+    cached = conn.execute("SELECT uid,flags FROM messages WHERE folder=? ORDER BY uid DESC LIMIT ?",
+                          (folder, limit)).fetchall()
+    if not cached:
+        return False
+    known = {row["uid"]: row["flags"] for row in cached}
+    status, listing = imap.uid("FETCH", ",".join(str(uid) for uid in known), "(UID FLAGS)")
+    if status != "OK":
+        raise RuntimeError("Cannot refresh Gmail message flags")
+    changed = False
+    for uid, flags, _ in _message_entries(listing):
+        if uid not in known:
+            continue
+        new_flags = " ".join(flags)
+        if known[uid] != new_flags:
+            conn.execute("UPDATE messages SET flags=? WHERE folder=? AND uid=?", (new_flags, folder, uid))
+            changed = True
+    return changed
+
+
 def sync_folder(imap, conn, folder, role, label, limit, reconcile=False):
     status, count_data = imap.select('"' + folder.replace('"', '\\"') + '"', readonly=True)
     if status != "OK":
@@ -443,6 +464,8 @@ def sync_folder(imap, conn, folder, role, label, limit, reconcile=False):
         conn.commit()
         return 0, changed
     full_scan = not last_uid or reconcile
+    if not full_scan:
+        changed |= refresh_cached_flags(imap, conn, folder, limit)
     if full_scan:
         start = max(1, count - limit + 1)
         status, listing = imap.fetch(f"{start}:{count}", "(UID FLAGS RFC822.SIZE)")

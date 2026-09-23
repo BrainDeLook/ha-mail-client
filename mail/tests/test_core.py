@@ -106,7 +106,7 @@ class CoreTests(unittest.TestCase):
             self.assertEqual(core.sync_all(self.cfg), 2)
             self.assertEqual(core.sync_all(self.cfg), 0)
         self.assertEqual(FakeImap.calls, 2)
-        self.assertEqual(FakeImap.metadata_calls, 2)
+        self.assertEqual(FakeImap.metadata_calls, 4)
         with closing(core.connect_db()) as conn:
             row = conn.execute("SELECT body FROM messages WHERE folder='INBOX' AND uid=90393").fetchone()
             self.assertIn("Welcome home", row[0])
@@ -122,7 +122,7 @@ class CoreTests(unittest.TestCase):
             self.assertEqual(core.sync_all(self.cfg), 2)
             self.assertEqual(core.sync_all(self.cfg), 0)
         self.assertEqual(FakeImap.calls, 4)
-        self.assertEqual(FakeImap.metadata_calls, 4)
+        self.assertEqual(FakeImap.metadata_calls, 8)
         with closing(core.connect_db()) as conn:
             self.assertEqual(conn.execute("SELECT COUNT(*) FROM messages WHERE folder='INBOX'").fetchone()[0], 2)
             self.assertEqual(conn.execute("SELECT last_uid FROM folders WHERE name='INBOX'").fetchone()[0], 90394)
@@ -134,7 +134,7 @@ class CoreTests(unittest.TestCase):
             smaller = {**self.cfg, "limit": 1}
             self.assertEqual(core.sync_all(smaller), 0)
         self.assertEqual(FakeImap.calls, 4)
-        self.assertEqual(FakeImap.metadata_calls, 2)
+        self.assertEqual(FakeImap.metadata_calls, 4)
         with closing(core.connect_db()) as conn:
             self.assertEqual(conn.execute("SELECT uid FROM messages WHERE folder='INBOX'").fetchone()[0], 90394)
 
@@ -150,7 +150,7 @@ class CoreTests(unittest.TestCase):
             metadata_calls = FakeImap.metadata_calls
             self.assertEqual(core.sync_all(larger), 0)
             self.assertEqual(FakeImap.calls, 200)
-            self.assertEqual(FakeImap.metadata_calls, metadata_calls)
+            self.assertEqual(FakeImap.metadata_calls, metadata_calls + 2)
         with closing(core.connect_db()) as conn:
             self.assertEqual(conn.execute("SELECT COUNT(*) FROM messages WHERE folder='INBOX'").fetchone()[0], 100)
             self.assertEqual(core.get_meta(conn, core.cache_limit_key("INBOX")), "100")
@@ -188,6 +188,23 @@ class CoreTests(unittest.TestCase):
         with closing(core.connect_db()) as conn:
             self.assertEqual(conn.execute("SELECT flags FROM messages WHERE folder='INBOX'").fetchone()[0], "\\Flagged")
             self.assertEqual(core.get_meta(conn, "cache_revision"), "3")
+
+    def test_read_state_changed_in_gmail_syncs_without_new_messages(self):
+        FakeImap.flags = ""
+        with patch.object(core.imaplib, "IMAP4_SSL", FakeImap):
+            self.assertEqual(core.sync_all(self.cfg), 2)
+            FakeImap.flags = "\\Seen"
+            self.assertEqual(core.sync_all(self.cfg), 0)
+            with closing(core.connect_db()) as conn:
+                self.assertEqual(conn.execute("SELECT flags FROM messages WHERE folder='INBOX'").fetchone()[0], "\\Seen")
+                self.assertEqual(core.get_meta(conn, "cache_revision"), "3")
+            FakeImap.flags = ""
+            self.assertEqual(core.sync_all(self.cfg), 0)
+        self.assertEqual(FakeImap.calls, 2)
+        self.assertEqual(FakeImap.metadata_calls, 6)
+        with closing(core.connect_db()) as conn:
+            self.assertEqual(conn.execute("SELECT flags FROM messages WHERE folder='INBOX'").fetchone()[0], "")
+            self.assertEqual(core.get_meta(conn, "cache_revision"), "4")
 
     def test_account_switch_clears_old_mail(self):
         with closing(core.connect_db()) as conn:
@@ -315,7 +332,7 @@ class CoreTests(unittest.TestCase):
         config = (app.parent / "config.yaml").read_text(encoding="utf-8")
         self.assertNotIn('stage: experimental', config)
         self.assertNotIn('stage: stable', config)  # Home Assistant defaults to stable.
-        self.assertIn('version: "1.0.0"', config)
+        self.assertIn('version: "1.0.1"', config)
 
     def test_mime_cid_image_is_cached(self):
         mail = EmailMessage()
