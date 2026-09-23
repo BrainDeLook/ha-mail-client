@@ -236,45 +236,55 @@
     const text = $('detail-body');
     const frame = $('detail-html');
     frame.mailObserver?.disconnect();
+    if (frame.mailResizeHandler) window.removeEventListener('resize', frame.mailResizeHandler);
+    frame.style.height = '';
     text.textContent = message.body;
     text.hidden = Boolean(message.html);
     frame.hidden = !message.html;
     $('remote-button').hidden = !message.html || Boolean(message.remoteLoaded);
     if (message.html) {
       const remote = message.remoteLoaded ? 'http: https: ' : '';
-      frame.srcdoc = `<meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'none'; img-src 'self' ${remote}data:; media-src 'self' ${remote}data:; style-src 'unsafe-inline'; frame-src 'none'; form-action 'none'"><style>html,body{overflow:hidden;touch-action:pan-y}body{font:14px/1.6 Arial,sans-serif;color:#202124;background:#fff;margin:0;word-break:normal;overflow-wrap:normal}img,video{max-width:100%}table{max-width:100%}a{color:#1a73e8}</style>${message.html}`;
+      frame.srcdoc = `<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'none'; img-src 'self' ${remote}data:; media-src 'self' ${remote}data:; style-src 'unsafe-inline'; frame-src 'none'; form-action 'none'"><style>html,body{overflow:hidden}body{font:14px/1.6 Arial,sans-serif;color:#202124;background:#fff;margin:0;word-break:normal;overflow-wrap:normal}img,video{max-width:100%}table{max-width:100%}a{color:#1a73e8}html.mobile-mail,html.mobile-mail body{overflow-x:hidden!important;overflow-y:auto!important;touch-action:pan-y}html.mobile-mail body{overflow-wrap:anywhere}html.mobile-mail img,html.mobile-mail video{max-width:100%!important;height:auto!important}html.mobile-mail pre{white-space:pre-wrap;overflow-wrap:anywhere}</style>${message.html}`;
       frame.addEventListener('load', () => {
         try {
           const doc = frame.contentDocument;
           const body = doc.body;
-          const resize = () => { frame.style.height = `${Math.max(200, body.scrollHeight + 30)}px`; };
+          let fittedWidth = 0;
+          const resize = () => {
+            const mobile = matchMedia('(max-width: 700px)').matches;
+            doc.documentElement.classList.toggle('mobile-mail', mobile);
+            const width = frame.clientWidth;
+            if (mobile && width && width !== fittedWidth) {
+              body.style.zoom = '';
+              body.style.width = '';
+              const naturalWidth = Math.max(body.scrollWidth, doc.documentElement.scrollWidth);
+              if (naturalWidth > width + 2) {
+                body.style.width = `${naturalWidth}px`;
+                body.style.zoom = String(width / naturalWidth);
+              }
+              fittedWidth = width;
+            } else if (!mobile && (fittedWidth || body.style.zoom)) {
+              body.style.zoom = '';
+              body.style.width = '';
+              fittedWidth = 0;
+            }
+            const contentHeight = Math.max(200, body.scrollHeight + 30);
+            const mobileHeight = Math.max(240, Math.round(window.innerHeight * 0.7));
+            frame.style.height = `${mobile ? Math.min(contentHeight, mobileHeight) : contentHeight}px`;
+          };
           resize();
           frame.mailObserver = new ResizeObserver(resize);
           frame.mailObserver.observe(body);
+          doc.addEventListener('load', () => { fittedWidth = 0; resize(); }, true);
+          frame.mailResizeHandler = () => { fittedWidth = 0; resize(); };
+          window.addEventListener('resize', frame.mailResizeHandler);
           doc.addEventListener('wheel', (event) => {
-            if (event.ctrlKey || event.metaKey || !event.deltaY) return;
+            if (matchMedia('(max-width: 700px)').matches || event.ctrlKey || event.metaKey || !event.deltaY) return;
             event.preventDefault();
             $('reading-pane').scrollTop += event.deltaY;
           }, {passive: false});
-          let lastTouchY = null;
-          let touchStartX = null;
-          let touchStartY = null;
           installSwipeBack(doc);
-          doc.addEventListener('touchstart', (event) => {
-            lastTouchY = event.touches.length === 1 ? event.touches[0].clientY : null;
-            touchStartX = event.touches.length === 1 ? event.touches[0].clientX : null;
-            touchStartY = lastTouchY;
-          }, {passive: true});
-          doc.addEventListener('touchmove', (event) => {
-            if (lastTouchY === null || event.touches.length !== 1) return;
-            if (Math.abs(event.touches[0].clientX - touchStartX) >
-                Math.abs(event.touches[0].clientY - touchStartY) * 1.2) return;
-            const nextY = event.touches[0].clientY;
-            $('reading-pane').scrollTop += lastTouchY - nextY;
-            lastTouchY = nextY;
-            event.preventDefault();
-          }, {passive: false});
-        } catch { frame.style.height = '700px'; }
+        } catch { frame.style.height = '70dvh'; }
       }, {once: true});
     } else {
       frame.removeAttribute('srcdoc');

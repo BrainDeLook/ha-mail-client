@@ -20,6 +20,7 @@ class Node {
     };
   }
   addEventListener(name, handler) { this.events.set(name, handler); }
+  removeEventListener(name) { this.events.delete(name); }
   fire(name, event = {}) { return this.events.get(name)?.(event); }
   setAttribute() {}
   replaceChildren() {}
@@ -41,6 +42,7 @@ const history = {
 };
 const window = new Node();
 window.parent = window;
+window.innerHeight = 800;
 const document = new Node();
 document.querySelector = () => shell;
 document.getElementById = element;
@@ -54,10 +56,12 @@ const context = {
   fetch: () => new Promise(() => {}),
   setInterval() {},
   setTimeout(callback) { timers.push(callback); return timers.length; },
-  clearTimeout(id) { if (id) timers[id - 1] = null; }
+  clearTimeout(id) { if (id) timers[id - 1] = null; },
+  ResizeObserver: class { observe() {} disconnect() {} }
 };
 const script = fs.readFileSync(path.join(__dirname, '../app/app.js'), 'utf8');
-vm.runInNewContext(script, context);
+vm.runInNewContext(script.replace('  function renderBody(message) {',
+  '  window.renderBodyForTest = renderBody;\n  function renderBody(message) {'), context);
 
 function openFakeMessage() {
   shell.classList.add('show-reader');
@@ -106,6 +110,33 @@ readingPane.fire('touchstart', {touches: [{clientX: 180, clientY: 200}]});
 readingPane.fire('touchmove', {touches: [{clientX: 188, clientY: 280}], preventDefault() { throw Error('vertical scroll prevented'); }});
 readingPane.fire('touchend', {changedTouches: [{clientX: 310, clientY: 280}]});
 assert.equal(shell.classList.contains('show-reader'), true, 'vertical movement from the middle still scrolls');
+
+const mailFrame = element('detail-html');
+mailFrame.clientWidth = 320;
+const mailDocument = new Node();
+mailDocument.body = new Node();
+mailDocument.body.scrollWidth = 620;
+mailDocument.body.scrollHeight = 1800;
+mailDocument.documentElement = new Node();
+mailDocument.documentElement.scrollWidth = 620;
+mailFrame.contentDocument = mailDocument;
+window.renderBodyForTest({body: '', html: '<table width="620"><tr><td>Long mail</td></tr></table>', remoteLoaded: false});
+mailFrame.fire('load');
+assert.match(mailFrame.srcdoc, /name="viewport"/);
+assert.match(mailFrame.srcdoc, /html\.mobile-mail.*overflow-y:auto/);
+assert.equal(mailDocument.documentElement.classList.contains('mobile-mail'), true);
+assert.equal(mailDocument.body.style.zoom, String(320 / 620), 'wide email fits phone width');
+assert.equal(mailFrame.style.height, '560px', 'long email scrolls inside a viewport-sized frame');
+assert.equal(mailDocument.events.has('touchmove'), true, 'swipe-back still handles HTML content');
+mailDocument.fire('touchstart', {touches: [{clientX: 150, clientY: 200}]});
+mailDocument.fire('touchmove', {touches: [{clientX: 250, clientY: 202}], preventDefault() {}});
+assert.equal(readingPane.style.transform, 'translate3d(100px,0,0)', 'swipe still moves HTML email');
+mailDocument.fire('touchcancel');
+timers.pop()();
+context.matchMedia = () => ({matches: false, addEventListener() {}});
+mailFrame.mailResizeHandler();
+assert.equal(mailDocument.documentElement.classList.contains('mobile-mail'), false, 'desktop email keeps its layout');
+assert.equal(mailDocument.body.style.zoom, '', 'desktop email is not scaled');
 
 async function startupFolder(defaultRole, folders) {
   const nodes = new Map();
