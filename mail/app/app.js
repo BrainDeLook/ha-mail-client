@@ -1,7 +1,7 @@
 (() => {
   'use strict';
   const $ = (id) => document.getElementById(id);
-  const state = {folder: 'INBOX', folders: [], messages: [], current: null, search: '', theme: 'system', externalMedia: true,
+  const state = {folder: 'INBOX', folders: [], messages: [], current: null, search: '', theme: 'system', viewMode: 'split', externalMedia: true,
     cacheRevision: null, listRequest: 0, statusBusy: false};
   const shell = document.querySelector('.shell');
   const base = new URL('./', location.href);
@@ -123,7 +123,8 @@
       top.append(sender, date);
       const subject = document.createElement('div'); subject.className = 'row-subject'; subject.textContent = (message.flags.includes('\\Flagged') ? '★ ' : '') + (message.subject || '(без темы)');
       const snippet = document.createElement('div'); snippet.className = 'row-snippet'; snippet.textContent = message.snippet;
-      card.append(top, subject, snippet);
+      const preview = document.createElement('div'); preview.className = 'card-preview'; preview.append(subject, snippet);
+      card.append(top, preview);
       parent.append(card);
     }
   }
@@ -209,12 +210,8 @@
     frame.hidden = !message.html;
     $('remote-button').hidden = !message.html || Boolean(message.remoteLoaded);
     if (message.html) {
-      const dark = document.documentElement.classList.contains('dark');
-      const haDark = document.documentElement.classList.contains('ha-dark');
-      const textColor = haDark ? '#e1e1e1' : dark ? '#e8edf5' : '#293442';
-      const background = haDark ? '#111111' : dark ? '#151d28' : '#fff';
-      const linkColor = haDark ? '#03a9f4' : dark ? '#8bc2ff' : '#176bd7';
-      frame.srcdoc = `<meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'none'; img-src http: https: data:; media-src http: https: data:; style-src 'unsafe-inline'; frame-src 'none'; form-action 'none'"><style>html,body{overflow:hidden}body{font:14px/1.6 -apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;color:${textColor};background:${background};margin:0;word-break:normal;overflow-wrap:normal}img,video{max-width:100%;height:auto}table{max-width:100%;border-collapse:collapse}td,th{padding:4px}a{color:${linkColor}}</style>${message.html}`;
+      const remote = message.remoteLoaded ? 'http: https: ' : '';
+      frame.srcdoc = `<meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'none'; img-src 'self' ${remote}data:; media-src 'self' ${remote}data:; style-src 'unsafe-inline'; frame-src 'none'; form-action 'none'"><style>html,body{overflow:hidden}body{font:14px/1.6 Arial,sans-serif;color:#202124;background:#fff;margin:0;word-break:normal;overflow-wrap:normal}img,video{max-width:100%}table{max-width:100%}a{color:#1a73e8}</style>${message.html}`;
       frame.addEventListener('load', () => {
         try {
           const doc = frame.contentDocument;
@@ -296,6 +293,8 @@
       const status = await api('api/status');
       $('account').textContent = status.email || 'Настройте Gmail в аддоне';
       state.theme = status.theme || 'system';
+      state.viewMode = status.view_mode === 'list' ? 'list' : 'split';
+      shell.classList.toggle('list-mode', state.viewMode === 'list');
       state.externalMedia = status.show_external_media !== false;
       applyTheme();
       $('sync-button').classList.toggle('is-syncing', Boolean(status.syncing));

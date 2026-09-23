@@ -189,3 +189,54 @@ html, body { width: 100%; height: 100%; overflow: hidden; }
 .dark .folder.active { color: #73d8ff; background: #123544; }
 .message-card.active { background: #e8f7fa; border-left-color: #009ac7; }
 .dark .message-card.active { background: #173039; border-left-color: #03a9f4; }
+
+/* Gmail-like list view: list and message use the same main column. */
+.shell.list-mode { grid-template-columns: 252px minmax(0, 1fr); }
+.shell.list-mode:not(.show-reader) .reading-pane,
+.shell.list-mode.show-reader .list-pane { display: none; }
+.shell.list-mode.show-reader .reading-pane { display: block; height: 100%; }
+.shell.list-mode .mobile-back { display: grid; place-items: center; }
+.shell.list-mode .message-card {
+  display: grid;
+  grid-template-columns: minmax(130px, 22%) minmax(0, 1fr) 100px;
+  align-items: center;
+  gap: 14px;
+  min-height: 44px;
+  padding: 9px 20px;
+}
+.shell.list-mode .message-card.active { padding-left: 17px; }
+.shell.list-mode .card-top { display: contents; }
+.shell.list-mode .row-sender { grid-column: 1; grid-row: 1; min-width: 0; }
+.shell.list-mode .row-date { grid-column: 3; grid-row: 1; text-align: right; }
+.shell.list-mode .card-preview {
+  grid-column: 2;
+  grid-row: 1;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+}
+.shell.list-mode .row-subject { flex: 0 1 auto; max-width: 55%; min-width: 0; margin: 0; }
+.shell.list-mode .row-snippet {
+  display: block;
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+@media (max-width: 900px) {
+  .shell.list-mode { grid-template-columns: 205px minmax(0, 1fr); }
+  .shell.list-mode .message-card { grid-template-columns: minmax(110px, 25%) minmax(0, 1fr) 76px; gap: 9px; }
+}
+@media (max-width: 700px) {
+  .shell.list-mode { display: block; }
+  .shell.list-mode .message-card { display: block; padding: 13px 19px 14px; }
+  .shell.list-mode .message-card.active { padding-left: 16px; }
+  .shell.list-mode .card-top { display: flex; }
+  .shell.list-mode .card-preview { display: block; }
+  .shell.list-mode .row-subject { max-width: none; margin-top: 6px; }
+  .shell.list-mode .row-snippet { display: -webkit-box; white-space: normal; margin-top: 4px; }
+  .shell.list-mode.show-reader .reading-pane { height: 100dvh; }
+}

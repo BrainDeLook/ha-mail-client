@@ -79,12 +79,16 @@ def options():
     theme = str(raw.get("theme", "system")).lower()
     if theme not in ("system", "light", "dark", "ha_dark"):
         theme = "system"
+    view_mode = str(raw.get("view_mode", "split")).lower()
+    if view_mode not in ("split", "list"):
+        view_mode = "split"
     log_level = str(raw.get("log_level", "info")).lower()
     if log_level not in ("error", "warning", "info", "debug"):
         log_level = "info"
     external_media = raw.get("show_external_media", True)
     return {"email": address, "password": password, "interval": interval, "limit": limit,
-            "theme": theme, "external_media": external_media is True, "log_level": log_level}
+            "theme": theme, "view_mode": view_mode,
+            "external_media": external_media is True, "log_level": log_level}
 
 
 def connect_db():
@@ -262,12 +266,13 @@ def parse_message(raw, folder, uid, flags):
 class SafeMailHtml(HTMLParser):
     """Small allowlist renderer; email HTML is never trusted as application HTML."""
 
-    TAGS = {"a", "audio", "b", "blockquote", "br", "center", "code", "div", "em", "h1", "h2", "h3",
+    TAGS = {"a", "audio", "b", "blockquote", "body", "br", "center", "code", "div", "em", "h1", "h2", "h3",
             "h4", "hr", "i", "img", "li", "ol", "p", "pre", "s", "small", "source", "span",
             "strong", "table", "tbody", "td", "th", "thead", "tr", "u", "ul", "video"}
     VOID = {"br", "hr", "img", "source"}
-    HIDDEN = {"script", "style", "head", "iframe", "object", "embed", "form", "svg", "math", "template"}
-    STYLE_PROPERTIES = {"background", "background-color", "border", "border-bottom", "border-collapse",
+    HIDDEN = {"script", "style", "head", "title", "iframe", "object", "embed", "form", "svg", "math", "template"}
+    STYLE_PROPERTIES = {"background", "background-color", "background-image", "background-position",
+                        "background-repeat", "background-size", "border", "border-bottom", "border-collapse",
                         "border-color", "border-left", "border-radius", "border-right", "border-top",
                         "border-width", "color", "display", "font", "font-family", "font-size",
                         "font-style", "font-weight", "height", "letter-spacing", "line-height",
@@ -276,13 +281,26 @@ class SafeMailHtml(HTMLParser):
                         "padding-right", "padding-top", "text-align", "text-decoration", "vertical-align",
                         "white-space", "width"}
 
-    @classmethod
-    def safe_style(cls, value):
+    def safe_style(self, value):
         declarations = []
         for item in value.split(";"):
             name, separator, content = item.partition(":")
             name, content = name.strip().lower(), content.strip()
-            if not separator or name not in cls.STYLE_PROPERTIES or len(content) > 160:
+            if not separator or name not in self.STYLE_PROPERTIES or len(content) > 1000:
+                continue
+            if name in ("background", "background-image") and "url(" in content.lower():
+                pattern = r"url\(\s*(['\"]?)([^'\"()]+)\1\s*\)"
+                match = re.search(pattern, content, re.I) if name == "background" else re.fullmatch(pattern, content, re.I)
+                if match:
+                    source = self.media_url(match.group(2))
+                    if source:
+                        declarations.append(f"background-image:url({json.dumps(source)})")
+                    if name == "background":
+                        color = re.search(r"#[0-9a-fA-F]{3,8}\b", content[:match.start()] + content[match.end():])
+                        if color:
+                            declarations.append("background-color:" + color.group())
+                continue
+            if len(content) > 160:
                 continue
             if not re.fullmatch(r"[\w\s#.,%()/'\"+\-]*", content, flags=re.ASCII):
                 continue
@@ -342,7 +360,14 @@ class SafeMailHtml(HTMLParser):
             size = (values.get(key) or "").strip()
             if tag == "table" and size.isdigit():
                 safe.append(f' {key}="{min(100, int(size))}"')
-        style = self.safe_style(values.get("style") or "")
+        styles = []
+        if values.get("bgcolor"):
+            styles.append("background-color:" + values["bgcolor"])
+        if values.get("background"):
+            styles.append("background-image:url(" + json.dumps(values["background"]) + ")")
+        if values.get("style"):
+            styles.append(values["style"])
+        style = self.safe_style(";".join(styles))
         if style:
             safe.append(f' style="{html.escape(style, quote=True)}"')
         if values.get("align") in ("left", "right", "center", "justify"):
@@ -364,7 +389,7 @@ class SafeMailHtml(HTMLParser):
                 safe.append(f' src="{html.escape(source, quote=True)}"')
             if tag in ("audio", "video"):
                 safe.append(" controls preload=\"none\"")
-        self.parts.append(f"<{tag}{''.join(safe)}>")
+        self.parts.append(f"<{'div' if tag == 'body' else tag}{''.join(safe)}>")
 
     def handle_startendtag(self, tag, attrs):
         self.handle_starttag(tag, attrs)
@@ -376,7 +401,7 @@ class SafeMailHtml(HTMLParser):
         if tag in self.HIDDEN:
             self.hidden = max(0, self.hidden - 1)
         elif not self.hidden and tag in self.TAGS and tag not in self.VOID:
-            self.parts.append(f"</{tag}>")
+            self.parts.append(f"</{'div' if tag == 'body' else tag}>")
 
     def handle_data(self, data):
         if not self.hidden:

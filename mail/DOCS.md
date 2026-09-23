@@ -17,6 +17,7 @@
 | `sync_interval_minutes` | `5` | Интервал фоновой синхронизации, 1–60 минут. |
 | `cache_per_folder` | `50` | Лимит последних писем **на папку**, 10–200. |
 | `theme` | `system` | `system`, `light`, `dark`, `ha_dark`. |
+| `view_mode` | `split` | `split` — список и письмо рядом; `list` — широкий список с переходом в письмо. |
 | `show_external_media` | `true` | Загружать внешние изображения и медиа. |
 | `log_level` | `info` | `error`, `warning`, `info`, `debug`. |
 

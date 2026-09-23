@@ -260,9 +260,29 @@ class CoreTests(unittest.TestCase):
         self.assertIn("padding:20px", result)
         self.assertIn("max-width:100%", result)
         self.assertIn("https://images.example/logo.png", result)
-        self.assertNotIn("background-image", result)
-        self.assertNotIn("track.example", result)
+        self.assertIn('background-image:url(&quot;https://track.example/x&quot;)', result)
         self.assertNotIn("onerror", result)
+
+    def test_email_backgrounds_preserved_without_unsafe_media(self):
+        source = ('<html><head><title>Hidden title</title></head>'
+                  '<body bgcolor="#ffe7d7" style="margin:0">'
+                  '<table bgcolor="#fff0e6"><tr><td background="https://images.example/hero.jpg" '
+                  'style="background-size:cover">Offer</td></tr></table></body></html>')
+        allowed = core.safe_html(source, "INBOX", 4, {}, True)
+        self.assertIn('<div style="background-color:#ffe7d7;margin:0">', allowed)
+        self.assertIn('background-color:#fff0e6', allowed)
+        self.assertIn('background-image:url(&quot;https://images.example/hero.jpg&quot;)', allowed)
+        self.assertIn('background-size:cover', allowed)
+        self.assertNotIn('Hidden title', allowed)
+        blocked = core.safe_html(source, "INBOX", 4, {}, False)
+        self.assertNotIn('images.example', blocked)
+        shorthand = core.safe_html('<td style="background:#ffe7d7 url(https://images.example/bg.jpg) no-repeat">Hi</td>',
+                                   "INBOX", 4, {}, True)
+        self.assertIn('background-color:#ffe7d7', shorthand)
+        self.assertIn('background-image:url(&quot;https://images.example/bg.jpg&quot;)', shorthand)
+        hostile = core.safe_html('<td style="background-image:url(javascript:alert(1))">Hi</td>',
+                                 "INBOX", 4, {}, True)
+        self.assertNotIn('javascript:', hostile)
 
     def test_external_media_can_be_disabled_in_addon_options(self):
         core.OPTIONS_FILE.write_text(json.dumps({"show_external_media": False}), encoding="utf-8")
@@ -271,14 +291,17 @@ class CoreTests(unittest.TestCase):
     def test_theme_and_log_level_options(self):
         core.OPTIONS_FILE.write_text("{}", encoding="utf-8")
         self.assertEqual(core.options()["theme"], "system")
+        self.assertEqual(core.options()["view_mode"], "split")
         self.assertEqual(core.options()["log_level"], "info")
-        core.OPTIONS_FILE.write_text(json.dumps({"theme": "dark", "log_level": "debug"}), encoding="utf-8")
+        core.OPTIONS_FILE.write_text(json.dumps({"theme": "dark", "view_mode": "list", "log_level": "debug"}), encoding="utf-8")
         self.assertEqual(core.options()["theme"], "dark")
+        self.assertEqual(core.options()["view_mode"], "list")
         self.assertEqual(core.options()["log_level"], "debug")
         core.OPTIONS_FILE.write_text(json.dumps({"theme": "ha_dark"}), encoding="utf-8")
         self.assertEqual(core.options()["theme"], "ha_dark")
-        core.OPTIONS_FILE.write_text(json.dumps({"theme": "invalid", "log_level": "invalid"}), encoding="utf-8")
+        core.OPTIONS_FILE.write_text(json.dumps({"theme": "invalid", "view_mode": "invalid", "log_level": "invalid"}), encoding="utf-8")
         self.assertEqual(core.options()["theme"], "system")
+        self.assertEqual(core.options()["view_mode"], "split")
         self.assertEqual(core.options()["log_level"], "info")
 
     def test_debug_http_logging_excludes_query_values(self):
@@ -318,8 +341,11 @@ class CoreTests(unittest.TestCase):
         self.assertIn('.shell.show-sidebar .sidebar-scrim', styles)
         self.assertIn(':root.ha-dark', styles)
         self.assertIn("root.classList.toggle('ha-dark', haDark)", script)
-        self.assertIn("const background = haDark ? '#111111'", script)
+        self.assertIn('color:#202124;background:#fff', script)
         self.assertIn('id="sidebar-scrim"', markup)
+        self.assertIn('.shell.list-mode.show-reader .list-pane { display: none; }', styles)
+        self.assertIn("shell.classList.toggle('list-mode', state.viewMode === 'list')", script)
+        self.assertNotIn('td,th{padding:4px}', script)
         self.assertIn("$('sidebar-scrim').addEventListener('click', () => setSidebarOpen(false))", script)
         self.assertIn('aria-expanded="false"', markup)
         self.assertIn("doc.addEventListener('wheel'", script)
@@ -332,7 +358,7 @@ class CoreTests(unittest.TestCase):
         config = (app.parent / "config.yaml").read_text(encoding="utf-8")
         self.assertNotIn('stage: experimental', config)
         self.assertNotIn('stage: stable', config)  # Home Assistant defaults to stable.
-        self.assertIn('version: "1.0.1"', config)
+        self.assertIn('version: "1.1.0"', config)
 
     def test_mime_cid_image_is_cached(self):
         mail = EmailMessage()
@@ -362,7 +388,7 @@ class CoreTests(unittest.TestCase):
     def test_http_status_and_ingress_assets(self):
         core.OPTIONS_FILE.write_text(json.dumps({"gmail_email": "test@gmail.com",
             "gmail_app_password": "secret", "sync_interval_minutes": 5, "cache_per_folder": 50,
-            "theme": "dark", "show_external_media": True}), encoding="utf-8")
+            "theme": "dark", "view_mode": "list", "show_external_media": True}), encoding="utf-8")
         with closing(core.connect_db()) as conn:
             core.ensure_account(conn, "test@gmail.com")
             conn.execute("INSERT INTO folders(name,role,label) VALUES('INBOX','INBOX','Входящие')")
@@ -383,6 +409,7 @@ class CoreTests(unittest.TestCase):
             self.assertTrue(value["configured"])
             self.assertEqual(value["email"], "test@gmail.com")
             self.assertEqual(value["theme"], "dark")
+            self.assertEqual(value["view_mode"], "list")
             self.assertTrue(value["show_external_media"])
             self.assertEqual(value["cache_revision"], 1)
             self.assertIn("frame-ancestors 'self'", response.headers["Content-Security-Policy"])
