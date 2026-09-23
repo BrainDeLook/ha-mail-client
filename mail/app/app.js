@@ -513,7 +513,9 @@
     list.addEventListener('touchcancel', finish, {passive: true});
 
     let closeStart = null;
-    sidebar.addEventListener('touchstart', (event) => {
+    // Listen on the whole screen: the open sidebar's scrim covers the content,
+    // so a left swipe should work from there as well as from the folder list.
+    shell.addEventListener('touchstart', (event) => {
       if (!matchMedia('(max-width: 700px)').matches ||
           !shell.classList.contains('show-sidebar') || event.touches.length !== 1) {
         closeStart = null;
@@ -522,7 +524,7 @@
       const touch = event.touches[0];
       closeStart = {x: touchX(touch), y: touchY(touch), dragging: false};
     }, {passive: true});
-    sidebar.addEventListener('touchmove', (event) => {
+    shell.addEventListener('touchmove', (event) => {
       if (!closeStart || event.touches.length !== 1) return;
       const dx = touchX(event.touches[0]) - closeStart.x;
       const dy = touchY(event.touches[0]) - closeStart.y;
@@ -551,8 +553,8 @@
       scrim.style.opacity = '';
       closeStart = null;
     };
-    sidebar.addEventListener('touchend', finishClose, {passive: true});
-    sidebar.addEventListener('touchcancel', finishClose, {passive: true});
+    shell.addEventListener('touchend', finishClose, {passive: true});
+    shell.addEventListener('touchcancel', finishClose, {passive: true});
   }
   installSidebarSwipe();
 

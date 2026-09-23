@@ -414,7 +414,7 @@ class CoreTests(unittest.TestCase):
         config = (app.parent / "config.yaml").read_text(encoding="utf-8")
         self.assertNotIn('stage: experimental', config)
         self.assertNotIn('stage: stable', config)  # Home Assistant defaults to stable.
-        self.assertIn('version: "1.1.10"', config)
+        self.assertIn('version: "1.1.11"', config)
 
     def test_mime_cid_image_is_cached(self):
         mail = EmailMessage()
