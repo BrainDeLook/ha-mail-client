@@ -30,6 +30,17 @@ class Node {
   setAttribute() {}
   replaceChildren() {}
   append() {}
+  attachShadow() {
+    const root = new Node();
+    root.querySelector = () => root.content || null;
+    Object.defineProperty(root, 'innerHTML', {set(value) {
+      root.markup = value;
+      root.content = new Node();
+      root.content.scrollWidth = 620;
+    }});
+    this.shadowRoot = root;
+    return root;
+  }
 }
 
 const elements = new Map();
@@ -119,37 +130,41 @@ assert.equal(shell.classList.contains('show-reader'), true, 'vertical movement f
 
 const mailFrame = element('detail-html');
 mailFrame.clientWidth = 320;
-const mailDocument = new Node();
-mailDocument.body = new Node();
-mailDocument.body.scrollWidth = 620;
-mailDocument.body.scrollHeight = 1800;
-mailDocument.body.getBoundingClientRect = () => ({height: 930});
-mailDocument.documentElement = new Node();
-mailDocument.documentElement.scrollWidth = 620;
-mailFrame.contentDocument = mailDocument;
 window.renderBodyForTest({body: '', html: '<table width="620"><tr><td>Long mail</td></tr></table>', remoteLoaded: false});
-mailFrame.fire('load');
-assert.match(mailFrame.srcdoc, /name="viewport"/);
-assert.match(mailFrame.srcdoc, /html\.mobile-mail.*touch-action:none/);
-assert.equal(mailDocument.documentElement.classList.contains('mobile-mail'), true);
-assert.equal(mailDocument.body.style.zoom, String(320 / 620), 'wide email fits phone width');
-assert.equal(mailFrame.style.height, '960px', 'scaled email has its full visible height');
-assert.equal(mailDocument.events.has('touchmove'), true, 'swipe-back still handles HTML content');
-readingPane.scrollTop = 20;
-mailDocument.fire('touchstart', {touches: [{clientX: 150, clientY: 200}]});
-mailDocument.fire('touchmove', {touches: [{clientX: 152, clientY: 120}], preventDefault() {}});
-assert.equal(readingPane.scrollTop, 100, 'vertical touch over HTML scrolls the whole message');
-mailDocument.fire('touchend');
-mailDocument.fire('touchstart', {touches: [{clientX: 150, clientY: 200}]});
-mailDocument.fire('touchmove', {touches: [{clientX: 250, clientY: 202}], preventDefault() {}});
+const mailRoot = mailFrame.shadowRoot;
+assert.match(mailRoot.markup, /\.mail-content/);
+assert.equal(mailRoot.content.innerHTML, '<table width="620"><tr><td>Long mail</td></tr></table>');
+assert.equal(mailRoot.content.style.zoom, String(320 / 620), 'wide email fits phone width');
+let verticalPrevented = false;
+mailRoot.fire('touchstart', {touches: [{clientX: 150, clientY: 200}]});
+mailRoot.fire('touchmove', {touches: [{clientX: 152, clientY: 120}], preventDefault() { verticalPrevented = true; }});
+assert.equal(verticalPrevented, false, 'HTML content leaves vertical scrolling native');
+mailRoot.fire('touchend', {changedTouches: [{clientX: 152, clientY: 120}]});
+mailRoot.fire('touchstart', {touches: [{clientX: 150, clientY: 200}]});
+mailRoot.fire('touchmove', {touches: [{clientX: 250, clientY: 202}], preventDefault() {}});
 assert.equal(readingPane.style.transform, 'translate3d(100px,0,0)', 'swipe still moves HTML email');
-mailDocument.fire('touchcancel');
+mailRoot.fire('touchcancel');
 timers.pop()();
 context.matchMedia = () => ({matches: false, addEventListener() {}});
 mailFrame.mailResizeHandler();
-assert.equal(mailDocument.documentElement.classList.contains('mobile-mail'), false, 'desktop email keeps its layout');
-assert.equal(mailDocument.body.style.zoom, '', 'desktop email is not scaled');
-assert.equal(mailFrame.style.height, '1830px', 'desktop email keeps its original full height');
+assert.equal(mailRoot.content.style.zoom, '', 'desktop email is not scaled');
+
+context.matchMedia = () => ({matches: true, addEventListener() {}});
+shell.classList.remove('show-reader');
+const listPane = element('list-pane');
+const sidebar = element('sidebar');
+sidebar.clientWidth = 250;
+listPane.fire('touchstart', {touches: [{clientX: 100, clientY: 200}]});
+listPane.fire('touchmove', {touches: [{clientX: 220, clientY: 203}], preventDefault() {}});
+assert.equal(sidebar.style.transform, 'translate3d(-130px,0,0)', 'sidebar follows the finger');
+listPane.fire('touchend', {changedTouches: [{clientX: 220, clientY: 203}]});
+assert.equal(shell.classList.contains('show-sidebar'), true, 'right swipe opens folders');
+element('sidebar-scrim').fire('click');
+assert.equal(shell.classList.contains('show-sidebar'), false);
+listPane.fire('touchstart', {touches: [{clientX: 100, clientY: 200}]});
+listPane.fire('touchmove', {touches: [{clientX: 105, clientY: 280}], preventDefault() { throw Error('vertical scroll prevented'); }});
+listPane.fire('touchend', {changedTouches: [{clientX: 110, clientY: 280}]});
+assert.equal(shell.classList.contains('show-sidebar'), false, 'vertical list scroll does not open folders');
 
 async function startupFolder(defaultRole, folders) {
   const nodes = new Map();

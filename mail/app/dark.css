@@ -54,17 +54,19 @@ html, body { width: 100%; height: 100%; overflow: hidden; }
     transition: opacity .2s, visibility .2s;
   }
   .shell.show-sidebar .sidebar-scrim { opacity: 1; visibility: visible; pointer-events: auto; }
+  .shell.swipe-opening .sidebar-scrim { visibility: visible; pointer-events: none; }
+  .sidebar.swipe-dragging { transition: none; }
+  .list-pane { touch-action: pan-y; }
   .list-header, .reader-toolbar { height: 60px; min-height: 60px; }
   .list-header, .reader-toolbar { padding-inline: 16px; }
   .reader-empty { height: calc(100% - 60px); }
 }
 
-.mail-frame {
+.mail-html {
   width: 100%;
-  min-height: 400px;
-  border: 0;
   margin-top: 26px;
-  background: transparent;
+  background: #fff;
+  overflow: clip;
 }
 .attachments { margin-top: 26px; border-top: 1px solid #e6eaf0; padding-top: 15px; }
 .attachments a {

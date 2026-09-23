@@ -235,116 +235,40 @@
 
   function renderBody(message) {
     const text = $('detail-body');
-    const frame = $('detail-html');
-    frame.mailObserver?.disconnect();
-    frame.mailCancelGlide?.();
-    if (frame.mailResizeHandler) window.removeEventListener('resize', frame.mailResizeHandler);
-    frame.style.height = '';
+    const host = $('detail-html');
+    if (host.mailResizeHandler) window.removeEventListener('resize', host.mailResizeHandler);
+    if (host.mailLoadHandler) host.shadowRoot.removeEventListener('load', host.mailLoadHandler, true);
     text.textContent = message.body;
     text.hidden = Boolean(message.html);
-    frame.hidden = !message.html;
+    host.hidden = !message.html;
     $('remote-button').hidden = !message.html || Boolean(message.remoteLoaded);
-    if (message.html) {
-      const remote = message.remoteLoaded ? 'http: https: ' : '';
-      frame.srcdoc = `<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'none'; img-src 'self' ${remote}data:; media-src 'self' ${remote}data:; style-src 'unsafe-inline'; frame-src 'none'; form-action 'none'"><style>html,body{overflow:hidden}body{font:14px/1.6 Arial,sans-serif;color:#202124;background:#fff;margin:0;word-break:normal;overflow-wrap:normal}img,video{max-width:100%}table{max-width:100%}a{color:#1a73e8}html.mobile-mail,html.mobile-mail body{overflow:hidden!important;touch-action:none!important}html.mobile-mail body{overflow-wrap:anywhere}html.mobile-mail img,html.mobile-mail video{max-width:100%!important;height:auto!important}html.mobile-mail pre{white-space:pre-wrap;overflow-wrap:anywhere}</style>${message.html}`;
-      frame.addEventListener('load', () => {
-        try {
-          const doc = frame.contentDocument;
-          const body = doc.body;
-          installSwipeBack(doc);
-          let fittedWidth = 0;
-          const resize = () => {
-            const mobile = matchMedia('(max-width: 700px)').matches;
-            doc.documentElement.classList.toggle('mobile-mail', mobile);
-            const width = frame.clientWidth;
-            if (mobile && width && width !== fittedWidth) {
-              body.style.zoom = '';
-              body.style.width = '';
-              const naturalWidth = Math.max(body.scrollWidth, doc.documentElement.scrollWidth);
-              if (naturalWidth > width + 2) {
-                body.style.width = `${naturalWidth}px`;
-                body.style.zoom = String(width / naturalWidth);
-              }
-              fittedWidth = width;
-            } else if (!mobile && (fittedWidth || body.style.zoom)) {
-              body.style.zoom = '';
-              body.style.width = '';
-              fittedWidth = 0;
-            }
-            const contentHeight = mobile ? body.getBoundingClientRect().height : body.scrollHeight;
-            frame.style.height = `${Math.max(200, Math.ceil(contentHeight) + 30)}px`;
-          };
-          resize();
-          frame.mailObserver = new ResizeObserver(resize);
-          frame.mailObserver.observe(body);
-          doc.addEventListener('load', () => { fittedWidth = 0; resize(); }, true);
-          frame.mailResizeHandler = () => { fittedWidth = 0; resize(); };
-          window.addEventListener('resize', frame.mailResizeHandler);
-          doc.addEventListener('wheel', (event) => {
-            if (event.ctrlKey || event.metaKey || !event.deltaY) return;
-            event.preventDefault();
-            $('reading-pane').scrollTop += event.deltaY;
-          }, {passive: false});
-          let scrollTouch = null;
-          let glideFrame = 0;
-          frame.mailCancelGlide = () => cancelAnimationFrame(glideFrame);
-          const touchX = (touch) => touch.screenX ?? touch.clientX;
-          const touchY = (touch) => touch.screenY ?? touch.clientY;
-          doc.addEventListener('touchstart', (event) => {
-            cancelAnimationFrame(glideFrame);
-            if (event.touches.length !== 1 || !matchMedia('(max-width: 700px)').matches) {
-              scrollTouch = null;
-              return;
-            }
-            const touch = event.touches[0];
-            scrollTouch = {x: touchX(touch), firstY: touchY(touch), y: touchY(touch),
-              time: Date.now(), velocity: 0, vertical: false};
-          }, {passive: true});
-          doc.addEventListener('touchmove', (event) => {
-            if (!scrollTouch || event.touches.length !== 1) return;
-            const touch = event.touches[0];
-            const x = touchX(touch);
-            const y = touchY(touch);
-            const dx = x - scrollTouch.x;
-            const dy = y - scrollTouch.firstY;
-            if (!scrollTouch.vertical) {
-              if (Math.abs(dx) > 12 && Math.abs(dx) > Math.abs(dy) * 1.2) {
-                scrollTouch = null;
-                return;
-              }
-              if (Math.abs(dy) <= 8 || Math.abs(dy) <= Math.abs(dx)) return;
-              scrollTouch.vertical = true;
-            }
-            const elapsed = Math.max(1, Date.now() - scrollTouch.time);
-            const delta = scrollTouch.y - y;
-            $('reading-pane').scrollTop += delta;
-            scrollTouch.velocity = scrollTouch.velocity * 0.6 + (delta / elapsed) * 0.4;
-            scrollTouch.y = y;
-            scrollTouch.time = Date.now();
-            event.preventDefault();
-          }, {passive: false});
-          doc.addEventListener('touchend', () => {
-            if (scrollTouch?.vertical && Math.abs(scrollTouch.velocity) > 0.08) {
-              let velocity = Math.max(-2.5, Math.min(2.5, scrollTouch.velocity));
-              let previous = Date.now();
-              const glide = () => {
-                const now = Date.now();
-                const elapsed = Math.min(32, Math.max(1, now - previous));
-                previous = now;
-                $('reading-pane').scrollTop += velocity * elapsed;
-                velocity *= Math.pow(0.92, elapsed / 16);
-                if (Math.abs(velocity) > 0.03) glideFrame = requestAnimationFrame(glide);
-              };
-              glideFrame = requestAnimationFrame(glide);
-            }
-            scrollTouch = null;
-          }, {passive: true});
-          doc.addEventListener('touchcancel', () => { scrollTouch = null; }, {passive: true});
-        } catch { frame.style.height = '70dvh'; }
-      }, {once: true});
-    } else {
-      frame.removeAttribute('srcdoc');
+    if (!message.html) {
+      host.shadowRoot?.querySelector('.mail-content')?.replaceChildren();
+      return;
     }
+    // The API returns allowlist-sanitized HTML; the shadow root keeps its styles out of the app.
+    const root = host.shadowRoot || host.attachShadow({mode: 'open'});
+    if (!root.querySelector('.mail-content')) {
+      root.innerHTML = `<style>:host{display:block;width:100%;color:#202124;background:#fff}.mail-content{font:14px/1.6 Arial,sans-serif;min-width:0;overflow-wrap:normal}.mail-content img,.mail-content video{max-width:100%}.mail-content table{max-width:100%}.mail-content a{color:#1a73e8}@media(max-width:700px){.mail-content{overflow-wrap:anywhere}.mail-content img,.mail-content video{max-width:100%!important;height:auto!important}.mail-content pre{white-space:pre-wrap;overflow-wrap:anywhere}}</style><div class="mail-content"></div>`;
+      installSwipeBack(root, true);
+    }
+    const content = root.querySelector('.mail-content');
+    content.innerHTML = message.html;
+    const fit = () => {
+      content.style.zoom = '';
+      content.style.width = '';
+      if (!matchMedia('(max-width: 700px)').matches || !host.clientWidth) return;
+      const naturalWidth = content.scrollWidth;
+      if (naturalWidth > host.clientWidth + 2) {
+        content.style.width = `${naturalWidth}px`;
+        content.style.zoom = String(host.clientWidth / naturalWidth);
+      }
+    };
+    fit();
+    host.mailResizeHandler = fit;
+    host.mailLoadHandler = fit;
+    window.addEventListener('resize', fit);
+    root.addEventListener('load', fit, true);
   }
 
   function renderAttachments(message) {
@@ -450,7 +374,6 @@
   function returnToList() {
     if (!shell.classList.contains('show-reader')) return;
     resetSwipeVisual();
-    $('detail-html').mailCancelGlide?.();
     ++routeRequest;
     ++state.messageRequest;
     state.current = null;
@@ -467,11 +390,12 @@
     }
   }
 
-  function installSwipeBack(target) {
+  function installSwipeBack(target, stopBubbling = false) {
     let start = null;
     const touchX = (touch) => touch.screenX ?? touch.clientX;
     const touchY = (touch) => touch.screenY ?? touch.clientY;
     target.addEventListener('touchstart', (event) => {
+      if (stopBubbling) event.stopPropagation?.();
       if (!matchMedia('(max-width: 700px)').matches ||
           !shell.classList.contains('show-reader') ||
           $('reading-pane').classList.contains('swipe-settling') || event.touches.length !== 1) {
@@ -483,6 +407,7 @@
         dragging: false, distance: 0};
     }, {passive: true});
     target.addEventListener('touchmove', (event) => {
+      if (stopBubbling) event.stopPropagation?.();
       if (!start || event.touches.length !== 1) return;
       const dx = touchX(event.touches[0]) - start.x;
       const dy = touchY(event.touches[0]) - start.y;
@@ -501,6 +426,7 @@
       event.preventDefault();
     }, {passive: false});
     target.addEventListener('touchend', (event) => {
+      if (stopBubbling) event.stopPropagation?.();
       if (!start || event.changedTouches.length !== 1) return;
       const dx = touchX(event.changedTouches[0]) - start.x;
       const dy = touchY(event.changedTouches[0]) - start.y;
@@ -520,7 +446,8 @@
       }
       start = null;
     }, {passive: true});
-    target.addEventListener('touchcancel', () => {
+    target.addEventListener('touchcancel', (event) => {
+      if (stopBubbling) event.stopPropagation?.();
       if (start?.dragging) {
         const reader = $('reading-pane');
         reader.classList.remove('swipe-dragging');
@@ -533,6 +460,59 @@
   }
 
   installSwipeBack($('reading-pane'));
+
+  function installSidebarSwipe() {
+    const list = $('list-pane');
+    const sidebar = $('sidebar');
+    const scrim = $('sidebar-scrim');
+    let start = null;
+    const touchX = (touch) => touch.screenX ?? touch.clientX;
+    const touchY = (touch) => touch.screenY ?? touch.clientY;
+    list.addEventListener('touchstart', (event) => {
+      if (!matchMedia('(max-width: 700px)').matches ||
+          shell.classList.contains('show-reader') ||
+          shell.classList.contains('show-sidebar') || event.touches.length !== 1) {
+        start = null;
+        return;
+      }
+      const touch = event.touches[0];
+      start = {x: touchX(touch), y: touchY(touch), dragging: false};
+    }, {passive: true});
+    list.addEventListener('touchmove', (event) => {
+      if (!start || event.touches.length !== 1) return;
+      const dx = touchX(event.touches[0]) - start.x;
+      const dy = touchY(event.touches[0]) - start.y;
+      if (!start.dragging && Math.abs(dy) > 12 && Math.abs(dy) > Math.abs(dx)) {
+        start = null;
+        return;
+      }
+      if (!start.dragging && dx > 12 && dx > Math.abs(dy) * 1.2) {
+        start.dragging = true;
+        sidebar.classList.add('swipe-dragging');
+        shell.classList.add('swipe-opening');
+      }
+      if (!start.dragging) return;
+      const width = sidebar.clientWidth || 250;
+      sidebar.style.transform = `translate3d(${Math.min(0, dx - width)}px,0,0)`;
+      scrim.style.opacity = String(Math.min(0.6, dx / width * 0.6));
+      event.preventDefault();
+    }, {passive: false});
+    const finish = (event) => {
+      if (!start) return;
+      const dx = event.changedTouches?.length === 1 ? touchX(event.changedTouches[0]) - start.x : 0;
+      const completed = start.dragging && dx >= (sidebar.clientWidth || 250) * 0.28;
+      sidebar.classList.remove('swipe-dragging');
+      shell.classList.remove('swipe-opening');
+      setSidebarOpen(completed);
+      void sidebar.offsetWidth;
+      sidebar.style.transform = '';
+      scrim.style.opacity = '';
+      start = null;
+    };
+    list.addEventListener('touchend', finish, {passive: true});
+    list.addEventListener('touchcancel', finish, {passive: true});
+  }
+  installSidebarSwipe();
 
   $('compose-button').addEventListener('click', () => showCompose());
   $('reply-button').addEventListener('click', () => showCompose(true));

@@ -330,7 +330,7 @@ class CoreTests(unittest.TestCase):
         finally:
             server.LOGGER.setLevel(old_level)
 
-    def test_sidebar_and_mail_frame_regression(self):
+    def test_sidebar_and_mail_rendering_regression(self):
         app = Path(__file__).parents[1] / "app"
         styles = (app / "dark.css").read_text(encoding="utf-8")
         markup = (app / "index.html").read_text(encoding="utf-8")
@@ -353,9 +353,11 @@ class CoreTests(unittest.TestCase):
         self.assertNotIn('td,th{padding:4px}', script)
         self.assertIn("$('sidebar-scrim').addEventListener('click', () => setSidebarOpen(false))", script)
         self.assertIn('aria-expanded="false"', markup)
-        self.assertIn("doc.addEventListener('wheel'", script)
-        self.assertIn('sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"', markup)
-        self.assertNotIn("allow-scripts", markup)
+        self.assertIn('class="mail-html" id="detail-html"', markup)
+        self.assertNotIn('<iframe', markup)
+        self.assertIn("host.attachShadow({mode: 'open'})", script)
+        self.assertIn('content.innerHTML = message.html', script)
+        self.assertIn('overflow: clip;', styles)
         self.assertIn('<img src="icon.png" alt="">', markup)
         self.assertIn('glyph.append(folderIcon(folder.role))', script)
         self.assertNotIn("INBOX: '▣'", script)
@@ -364,13 +366,10 @@ class CoreTests(unittest.TestCase):
         self.assertIn("history.back()", script)
         self.assertIn("$('back-button').addEventListener('click', returnToList)", script)
         self.assertIn("installSwipeBack($('reading-pane'))", script)
-        self.assertIn("installSwipeBack(doc)", script)
-        self.assertIn('html.mobile-mail', script)
-        self.assertIn('body.style.zoom = String(width / naturalWidth)', script)
-        self.assertIn('body.getBoundingClientRect().height', script)
-        self.assertIn('touch-action:none!important', script)
-        self.assertIn("$('reading-pane').scrollTop += delta", script)
-        self.assertNotIn("$('reading-pane').scrollTop += lastTouchY - nextY", script)
+        self.assertIn('installSwipeBack(root, true)', script)
+        self.assertIn('content.style.zoom = String(host.clientWidth / naturalWidth)', script)
+        self.assertIn('installSidebarSwipe()', script)
+        self.assertNotIn("$('reading-pane').scrollTop += delta", script)
         self.assertIn("reader.style.transform = `translate3d(${start.distance}px,0,0)`", script)
         self.assertNotIn('touch.clientX <= 96', script)
         self.assertIn("dx >= width * 0.28", script)
@@ -380,7 +379,7 @@ class CoreTests(unittest.TestCase):
         config = (app.parent / "config.yaml").read_text(encoding="utf-8")
         self.assertNotIn('stage: experimental', config)
         self.assertNotIn('stage: stable', config)  # Home Assistant defaults to stable.
-        self.assertIn('version: "1.1.7"', config)
+        self.assertIn('version: "1.1.8"', config)
 
     def test_mime_cid_image_is_cached(self):
         mail = EmailMessage()
