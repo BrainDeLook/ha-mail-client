@@ -5,10 +5,12 @@ from __future__ import annotations
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import imaplib
 import json
+import logging
 from pathlib import Path
 import queue
 import sqlite3
 import smtplib
+import sys
 import threading
 import time
 from contextlib import closing
@@ -23,6 +25,18 @@ SYNC_STATE = {"running": False, "folder": None}
 SYNC_PENDING = set()
 SYNC_LOCK = threading.Lock()
 MAX_REQUEST = 600_000
+LOGGER = logging.getLogger("home-mail")
+LOGGER.propagate = False
+LOG_LEVELS = {"error": logging.ERROR, "warning": logging.WARNING,
+              "info": logging.INFO, "debug": logging.DEBUG}
+
+
+def configure_logging(level):
+    if not LOGGER.handlers:
+        handler = logging.StreamHandler(sys.stdout)
+        handler.setFormatter(logging.Formatter("[%(levelname)s] %(message)s"))
+        LOGGER.addHandler(handler)
+    LOGGER.setLevel(LOG_LEVELS.get(level, logging.INFO))
 
 
 def enqueue_sync(folder):
@@ -54,11 +68,15 @@ def sync_worker():
                 SYNC_PENDING.discard(requested_folder)
         try:
             cfg = core.options()
+            configure_logging(cfg["log_level"])
             with SYNC_LOCK:
                 SYNC_STATE["running"] = True
                 SYNC_STATE["folder"] = requested_folder
             count = core.sync_all(cfg, requested_folder)
-            print(f"[INFO] Gmail sync: {count} new messages", flush=True)
+            if count:
+                LOGGER.info("Gmail sync: %d new messages", count)
+            else:
+                LOGGER.debug("Gmail sync: no new messages")
             failures = 0
         except (FileNotFoundError, json.JSONDecodeError, ValueError, OSError,
                 imaplib.IMAP4.error, RuntimeError, sqlite3.Error) as exc:
@@ -70,7 +88,7 @@ def sync_worker():
                 message = "Mail server or database unavailable"
             else:
                 message = str(exc)
-            print(f"[WARN] Gmail sync: {message}", flush=True)
+            LOGGER.warning("Gmail sync: %s", message)
             failures += 1
             try:
                 with closing(core.connect_db()) as conn:
@@ -92,11 +110,11 @@ def sync_worker():
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "HomeMail/0.3.0"
+    server_version = "HomeMail/0.3.1"
 
     def log_message(self, format, *args):
         # Avoid logging Ingress tokens, search terms or message details.
-        print(f"[HTTP] {self.client_address[0]} {self.command} {urlsplit(self.path).path}", flush=True)
+        LOGGER.debug("HTTP %s %s", self.command, urlsplit(self.path).path)
 
     def common_headers(self, content_type, length):
         self.send_header("Content-Type", content_type)
@@ -211,7 +229,7 @@ class Handler(BaseHTTPRequestHandler):
         except (ValueError, KeyError) as exc:
             return self.reply(400, {"error": str(exc)})
         except (OSError, sqlite3.Error, json.JSONDecodeError) as exc:
-            print(f"[WARN] GET failed: {type(exc).__name__}", flush=True)
+            LOGGER.warning("GET failed: %s", type(exc).__name__)
             return self.reply(503, {"error": "Mail data unavailable"})
 
     def do_POST(self):
@@ -255,13 +273,17 @@ class Handler(BaseHTTPRequestHandler):
         except (imaplib.IMAP4.error, smtplib.SMTPException):
             return self.reply(502, {"error": "Gmail authentication or mail server error"})
         except (OSError, sqlite3.Error, RuntimeError, json.JSONDecodeError) as exc:
-            print(f"[WARN] POST failed: {type(exc).__name__}", flush=True)
+            LOGGER.warning("POST failed: %s", type(exc).__name__)
             return self.reply(503, {"error": "Mail server unavailable"})
 
 
 if __name__ == "__main__":
+    try:
+        configure_logging(core.options()["log_level"])
+    except (OSError, ValueError, json.JSONDecodeError):
+        configure_logging("info")
     with closing(core.connect_db()):
         pass
     threading.Thread(target=sync_worker, name="gmail-sync", daemon=True).start()
-    print("[INFO] Home Mail listening on 8099", flush=True)
+    LOGGER.info("Home Mail listening on 8099")
     ThreadingHTTPServer(("0.0.0.0", 8099), Handler).serve_forever()

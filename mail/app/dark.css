@@ -1,6 +1,7 @@
 html, body { width: 100%; height: 100%; overflow: hidden; }
 .shell { height: 100%; min-height: 0; grid-template-rows: minmax(0, 1fr); overflow: hidden; }
 .sidebar { min-height: 0; overflow: hidden; padding-top: 0; }
+.sidebar-scrim { display: none; }
 .brand, .list-header, .reader-toolbar { height: 64px; min-height: 64px; }
 .brand { flex: 0 0 64px; padding: 0 11px; }
 .list-header { flex: 0 0 64px; padding: 0 20px; }
@@ -27,6 +28,20 @@ html, body { width: 100%; height: 100%; overflow: hidden; }
 @media (max-width: 900px) { .ha-button { left: 8px; width: 189px; } }
 @media (max-width: 700px) { .ha-button { width: 234px; } }
 @media (max-width: 700px) {
+  .sidebar-scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 4;
+    border: 0;
+    padding: 0;
+    background: #0009;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: opacity .2s, visibility .2s;
+  }
+  .shell.show-sidebar .sidebar-scrim { opacity: 1; visibility: visible; pointer-events: auto; }
   .list-header, .reader-toolbar { height: 60px; min-height: 60px; }
   .list-header, .reader-toolbar { padding-inline: 16px; }
   .reader-empty { height: calc(100% - 60px); }

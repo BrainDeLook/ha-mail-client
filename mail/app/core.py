@@ -79,9 +79,12 @@ def options():
     theme = str(raw.get("theme", "system")).lower()
     if theme not in ("system", "light", "dark"):
         theme = "system"
+    log_level = str(raw.get("log_level", "info")).lower()
+    if log_level not in ("error", "warning", "info", "debug"):
+        log_level = "info"
     external_media = raw.get("show_external_media", True)
     return {"email": address, "password": password, "interval": interval, "limit": limit,
-            "theme": theme, "external_media": external_media is True}
+            "theme": theme, "external_media": external_media is True, "log_level": log_level}
 
 
 def connect_db():

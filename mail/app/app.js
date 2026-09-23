@@ -7,6 +7,11 @@
   const base = new URL('./', location.href);
   let toastTimer;
 
+  function setSidebarOpen(open) {
+    shell.classList.toggle('show-sidebar', open);
+    $('menu-button').setAttribute('aria-expanded', String(open));
+  }
+
   async function api(path, body) {
     const response = await fetch(new URL(path, base), {
       method: body === undefined ? 'GET' : 'POST',
@@ -114,7 +119,8 @@
     $('reader-empty').hidden = false;
     $('message-detail').hidden = true;
     for (const id of ['remote-button', 'unread-button', 'star-button', 'reply-button']) $(id).hidden = true;
-    shell.classList.remove('show-sidebar', 'show-reader');
+    setSidebarOpen(false);
+    shell.classList.remove('show-reader');
     const folder = state.folders.find((item) => item.name === name);
     $('folder-title').textContent = folder ? folderLabel(folder) : name;
     renderFolders();
@@ -307,7 +313,11 @@
   $('close-compose').addEventListener('click', () => $('compose-dialog').close());
   $('star-button').addEventListener('click', () => changeFlag('\\Flagged', !state.current?.flags.includes('\\Flagged')));
   $('unread-button').addEventListener('click', () => changeFlag('\\Seen', false));
-  $('menu-button').addEventListener('click', () => shell.classList.toggle('show-sidebar'));
+  $('menu-button').addEventListener('click', () => setSidebarOpen(!shell.classList.contains('show-sidebar')));
+  $('sidebar-scrim').addEventListener('click', () => setSidebarOpen(false));
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && shell.classList.contains('show-sidebar')) setSidebarOpen(false);
+  });
   $('back-button').addEventListener('click', () => shell.classList.remove('show-reader'));
   $('sync-button').addEventListener('click', async () => {
     try {

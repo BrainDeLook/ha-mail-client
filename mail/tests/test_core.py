@@ -226,6 +226,38 @@ class CoreTests(unittest.TestCase):
         core.OPTIONS_FILE.write_text(json.dumps({"show_external_media": False}), encoding="utf-8")
         self.assertFalse(core.options()["external_media"])
 
+    def test_theme_and_log_level_options(self):
+        core.OPTIONS_FILE.write_text("{}", encoding="utf-8")
+        self.assertEqual(core.options()["theme"], "system")
+        self.assertEqual(core.options()["log_level"], "info")
+        core.OPTIONS_FILE.write_text(json.dumps({"theme": "dark", "log_level": "debug"}), encoding="utf-8")
+        self.assertEqual(core.options()["theme"], "dark")
+        self.assertEqual(core.options()["log_level"], "debug")
+        core.OPTIONS_FILE.write_text(json.dumps({"theme": "invalid", "log_level": "invalid"}), encoding="utf-8")
+        self.assertEqual(core.options()["theme"], "system")
+        self.assertEqual(core.options()["log_level"], "info")
+
+    def test_debug_http_logging_excludes_query_values(self):
+        from types import SimpleNamespace
+        from unittest.mock import patch
+
+        request = SimpleNamespace(command="GET", path="/api/message?token=SECRET&folder=INBOX")
+        with patch.object(server.LOGGER, "debug") as debug:
+            server.Handler.log_message(request, "ignored")
+        debug.assert_called_once_with("HTTP %s %s", "GET", "/api/message")
+
+    def test_log_level_filters_http_requests(self):
+        old_level = server.LOGGER.level
+        try:
+            server.configure_logging("info")
+            self.assertFalse(server.LOGGER.isEnabledFor(10))
+            server.configure_logging("debug")
+            self.assertTrue(server.LOGGER.isEnabledFor(10))
+            server.configure_logging("error")
+            self.assertFalse(server.LOGGER.isEnabledFor(30))
+        finally:
+            server.LOGGER.setLevel(old_level)
+
     def test_sidebar_and_mail_frame_regression(self):
         app = Path(__file__).parents[1] / "app"
         styles = (app / "dark.css").read_text(encoding="utf-8")
@@ -236,6 +268,10 @@ class CoreTests(unittest.TestCase):
         self.assertIn("grid-template-rows: minmax(0, 1fr)", styles)
         self.assertIn(".reading-pane { overflow-y: auto", styles)
         self.assertIn("#folders { min-height: 0; overflow-y: auto", styles)
+        self.assertIn('.shell.show-sidebar .sidebar-scrim', styles)
+        self.assertIn('id="sidebar-scrim"', markup)
+        self.assertIn("$('sidebar-scrim').addEventListener('click', () => setSidebarOpen(false))", script)
+        self.assertIn('aria-expanded="false"', markup)
         self.assertIn("doc.addEventListener('wheel'", script)
         self.assertIn('sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"', markup)
         self.assertNotIn("allow-scripts", markup)
