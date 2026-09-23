@@ -78,11 +78,11 @@ class FakeImap:
 class CoreTests(unittest.TestCase):
     def test_store_branding_assets(self):
         addon = Path(__file__).parents[1]
-        for filename, expected_size in (("icon.png", (128, 128)), ("logo.png", (128, 128))):
+        for filename, expected_size in (("icon.png", (128, 128)), ("logo.png", (1250, 240))):
             payload = (addon / filename).read_bytes()
             self.assertEqual(payload[:8], b"\x89PNG\r\n\x1a\n")
             self.assertEqual(struct.unpack(">II", payload[16:24]), expected_size)
-        self.assertEqual((addon / "logo.png").read_bytes(), (addon / "icon.png").read_bytes())
+        self.assertNotEqual((addon / "logo.png").read_bytes(), (addon / "icon.png").read_bytes())
         self.assertTrue((addon.parent / "assets" / "home-mail-wordmark.png").is_file())
 
     def setUp(self):
@@ -363,7 +363,7 @@ class CoreTests(unittest.TestCase):
         config = (app.parent / "config.yaml").read_text(encoding="utf-8")
         self.assertNotIn('stage: experimental', config)
         self.assertNotIn('stage: stable', config)  # Home Assistant defaults to stable.
-        self.assertIn('version: "1.1.1"', config)
+        self.assertIn('version: "1.1.2"', config)
 
     def test_mime_cid_image_is_cached(self):
         mail = EmailMessage()
