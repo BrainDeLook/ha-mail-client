@@ -284,6 +284,27 @@ class SafeMailHtml(HTMLParser):
                         "padding-right", "padding-top", "text-align", "text-decoration", "vertical-align",
                         "white-space", "width"}
 
+    def safe_stylesheet(self, source):
+        rules = []
+        # Only simple selectors can reach the isolated message body. At-rules,
+        # imports, pseudo-selectors and browser-wide selectors are discarded.
+        for selector, declarations in re.findall(r"([^{}]+)\{([^{}]*)\}", source[:100_000]):
+            names = []
+            for item in selector.split(","):
+                item = item.strip()
+                if not item or len(item) > 180 or not re.fullmatch(r"[A-Za-z0-9_#.\-\s>+*]+", item):
+                    continue
+                if item.lower() in ("html", "body"):
+                    names.append(".mail-content")
+                else:
+                    names.append(".mail-content " + item)
+            style = self.safe_style(declarations)
+            if names and style:
+                rules.append(",".join(names) + "{" + style + "}")
+            if len(rules) >= 200:
+                break
+        return "".join(rules)
+
     def safe_style(self, value):
         declarations = []
         for item in value.split(";"):
@@ -325,6 +346,8 @@ class SafeMailHtml(HTMLParser):
         if not value:
             return ""
         value = value.strip()
+        if any(char in value for char in "<>\\\r\n"):
+            return ""
         if value.lower().startswith("cid:"):
             cid = unquote(value[4:]).strip("<>").lower()
             part_id = self.cid_parts.get(cid)
@@ -346,6 +369,10 @@ class SafeMailHtml(HTMLParser):
             return
         values = dict(attrs)
         safe = []
+        for key in ("class", "id"):
+            value = (values.get(key) or "").strip()
+            if value and len(value) <= 300 and re.fullmatch(r"[A-Za-z0-9_\-\s]+", value):
+                safe.append(f' {key}="{html.escape(value, quote=True)}"')
         for key in ("alt", "title"):
             if values.get(key):
                 safe.append(f' {key}="{html.escape(values[key], quote=True)}"')
@@ -416,7 +443,10 @@ class SafeMailHtml(HTMLParser):
 
 
 def safe_html(source, folder, uid, cid_parts, allow_remote=False):
-    return SafeMailHtml(folder, uid, cid_parts, allow_remote).render(source)
+    sanitizer = SafeMailHtml(folder, uid, cid_parts, allow_remote)
+    styles = "".join(sanitizer.safe_stylesheet(block) for block in
+                     re.findall(r"<style\b[^>]*>(.*?)</style\s*>", source, re.I | re.S)[:20])
+    return ("<style>" + styles + "</style>" if styles else "") + sanitizer.render(source)
 
 
 def _literal(response):

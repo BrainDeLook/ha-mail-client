@@ -56,6 +56,7 @@ html, body { width: 100%; height: 100%; overflow: hidden; }
   .shell.show-sidebar .sidebar-scrim { opacity: 1; visibility: visible; pointer-events: auto; }
   .shell.swipe-opening .sidebar-scrim { visibility: visible; pointer-events: none; }
   .sidebar.swipe-dragging { transition: none; }
+  .sidebar { touch-action: pan-y; }
   .list-pane { touch-action: pan-y; }
   .list-header, .reader-toolbar { height: 60px; min-height: 60px; }
   .list-header, .reader-toolbar { padding-inline: 16px; }

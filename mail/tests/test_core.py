@@ -286,6 +286,27 @@ class CoreTests(unittest.TestCase):
                                  "INBOX", 4, {}, True)
         self.assertNotIn('javascript:', hostile)
 
+    def test_email_class_styles_survive_inside_isolated_message(self):
+        source = ('<html><head><style>.card{background-color:#fff;color:#222}'
+                  '.button{background-color:#178038;color:#fff;padding:12px}'
+                  '@import url(https://bad.example/css);'
+                  '.evil{position:fixed;background-image:url(javascript:alert(1))}'
+                  '</style></head><body class="card"><a class="button" href="https://github.com">'
+                  'View workflow run</a></body></html>')
+        result = core.safe_html(source, "INBOX", 4, {}, True)
+        self.assertIn('.mail-content .card{background-color:#fff;color:#222}', result)
+        self.assertIn('.mail-content .button{background-color:#178038;color:#fff;padding:12px}', result)
+        self.assertIn('class="card"', result)
+        self.assertIn('class="button"', result)
+        self.assertIn('View workflow run', result)
+        self.assertNotIn('@import', result)
+        self.assertNotIn('position:fixed', result)
+        self.assertNotIn('javascript:', result)
+        injection = core.safe_html('<style>.x{background-image:url(https://example.com/a</style><script>alert(1)</script>)}'
+                                   '</style><p class="x">Safe</p>', "INBOX", 4, {}, True)
+        self.assertNotIn('alert(1)', injection)
+        self.assertNotIn('<script', injection)
+
     def test_external_media_can_be_disabled_in_addon_options(self):
         core.OPTIONS_FILE.write_text(json.dumps({"show_external_media": False}), encoding="utf-8")
         self.assertFalse(core.options()["external_media"])
@@ -379,7 +400,7 @@ class CoreTests(unittest.TestCase):
         config = (app.parent / "config.yaml").read_text(encoding="utf-8")
         self.assertNotIn('stage: experimental', config)
         self.assertNotIn('stage: stable', config)  # Home Assistant defaults to stable.
-        self.assertIn('version: "1.1.8"', config)
+        self.assertIn('version: "1.1.9"', config)
 
     def test_mime_cid_image_is_cached(self):
         mail = EmailMessage()

@@ -511,6 +511,48 @@
     };
     list.addEventListener('touchend', finish, {passive: true});
     list.addEventListener('touchcancel', finish, {passive: true});
+
+    let closeStart = null;
+    sidebar.addEventListener('touchstart', (event) => {
+      if (!matchMedia('(max-width: 700px)').matches ||
+          !shell.classList.contains('show-sidebar') || event.touches.length !== 1) {
+        closeStart = null;
+        return;
+      }
+      const touch = event.touches[0];
+      closeStart = {x: touchX(touch), y: touchY(touch), dragging: false};
+    }, {passive: true});
+    sidebar.addEventListener('touchmove', (event) => {
+      if (!closeStart || event.touches.length !== 1) return;
+      const dx = touchX(event.touches[0]) - closeStart.x;
+      const dy = touchY(event.touches[0]) - closeStart.y;
+      if (!closeStart.dragging && Math.abs(dy) > 12 && Math.abs(dy) > Math.abs(dx)) {
+        closeStart = null;
+        return;
+      }
+      if (!closeStart.dragging && dx < -12 && -dx > Math.abs(dy) * 1.2) {
+        closeStart.dragging = true;
+        sidebar.classList.add('swipe-dragging');
+      }
+      if (!closeStart.dragging) return;
+      const width = sidebar.clientWidth || 250;
+      sidebar.style.transform = `translate3d(${Math.max(-width, Math.min(0, dx))}px,0,0)`;
+      scrim.style.opacity = String(Math.max(0, 1 + dx / width));
+      event.preventDefault();
+    }, {passive: false});
+    const finishClose = (event) => {
+      if (!closeStart) return;
+      const dx = event.changedTouches?.length === 1 ? touchX(event.changedTouches[0]) - closeStart.x : 0;
+      const closed = closeStart.dragging && -dx >= (sidebar.clientWidth || 250) * 0.28;
+      sidebar.classList.remove('swipe-dragging');
+      setSidebarOpen(!closed);
+      void sidebar.offsetWidth;
+      sidebar.style.transform = '';
+      scrim.style.opacity = '';
+      closeStart = null;
+    };
+    sidebar.addEventListener('touchend', finishClose, {passive: true});
+    sidebar.addEventListener('touchcancel', finishClose, {passive: true});
   }
   installSidebarSwipe();
 
