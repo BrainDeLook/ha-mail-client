@@ -74,7 +74,7 @@ def sync_worker():
                 SYNC_STATE["folder"] = requested_folder
             count = core.sync_all(cfg, requested_folder)
             if count:
-                LOGGER.info("Gmail sync: %d new messages", count)
+                LOGGER.info("Gmail sync: %d messages added to cache", count)
             else:
                 LOGGER.debug("Gmail sync: no new messages")
             failures = 0
@@ -110,7 +110,7 @@ def sync_worker():
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "HomeMail/0.3.3"
+    server_version = "HomeMail/0.3.4"
 
     def log_message(self, format, *args):
         # Avoid logging Ingress tokens, search terms or message details.

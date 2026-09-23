@@ -145,6 +145,10 @@ def reconcile_key(folder):
     return "reconcile:" + hashlib.sha256(folder.encode("utf-8")).hexdigest()[:20]
 
 
+def cache_limit_key(folder):
+    return "cache_limit:" + hashlib.sha256(folder.encode("utf-8")).hexdigest()[:20]
+
+
 def ensure_account(conn, address):
     digest = hashlib.sha256(address.encode("utf-8")).hexdigest()
     previous = get_meta(conn, "account")
@@ -152,6 +156,7 @@ def ensure_account(conn, address):
         conn.execute("DELETE FROM messages")
         conn.execute("DELETE FROM folders")
         conn.execute("DELETE FROM meta WHERE key LIKE 'reconcile:%'")
+        conn.execute("DELETE FROM meta WHERE key LIKE 'cache_limit:%'")
         set_meta(conn, "account", digest)
         set_meta(conn, "last_sync", "")
         bump_cache_revision(conn)
@@ -531,15 +536,20 @@ def sync_all(cfg, requested_folder=None):
             total = 0
             for name, role, label in target:
                 key = reconcile_key(name)
+                limit_key = cache_limit_key(name)
                 try:
                     reconcile = (datetime.now(timezone.utc) - datetime.fromisoformat(get_meta(conn, key))).total_seconds() >= 6 * 3600
                 except ValueError:
                     reconcile = True
+                # A larger cache needs one metadata scan of the wider window.
+                # Existing message bodies are reused; only missing UIDs are downloaded.
+                reconcile |= cfg["limit"] > int(get_meta(conn, limit_key, "0"))
                 fetched, changed = sync_folder(imap, conn, name, role, label, cfg["limit"], reconcile)
                 total += fetched
                 cache_changed |= changed
                 if reconcile:
                     set_meta(conn, key, datetime.now(timezone.utc).isoformat())
+                set_meta(conn, limit_key, cfg["limit"])
             set_meta(conn, "last_sync", datetime.now(timezone.utc).isoformat())
             set_meta(conn, "last_error", "")
             if cache_changed:

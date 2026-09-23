@@ -130,6 +130,23 @@ class CoreTests(unittest.TestCase):
         with closing(core.connect_db()) as conn:
             self.assertEqual(conn.execute("SELECT uid FROM messages WHERE folder='INBOX'").fetchone()[0], 90394)
 
+    def test_larger_cache_limit_backfills_only_missing_bodies(self):
+        FakeImap.uids = list(range(90300, 90400))
+        initial = {**self.cfg, "limit": 50}
+        larger = {**self.cfg, "limit": 100}
+        with patch.object(core.imaplib, "IMAP4_SSL", FakeImap):
+            self.assertEqual(core.sync_all(initial), 100)
+            self.assertEqual(FakeImap.calls, 100)
+            self.assertEqual(core.sync_all(larger), 100)
+            self.assertEqual(FakeImap.calls, 200)
+            metadata_calls = FakeImap.metadata_calls
+            self.assertEqual(core.sync_all(larger), 0)
+            self.assertEqual(FakeImap.calls, 200)
+            self.assertEqual(FakeImap.metadata_calls, metadata_calls)
+        with closing(core.connect_db()) as conn:
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM messages WHERE folder='INBOX'").fetchone()[0], 100)
+            self.assertEqual(core.get_meta(conn, core.cache_limit_key("INBOX")), "100")
+
     def test_sync_requests_are_coalesced(self):
         with patch.object(server, "SYNC_QUEUE", queue.Queue(maxsize=2)), \
              patch.object(server, "SYNC_PENDING", set()), \
