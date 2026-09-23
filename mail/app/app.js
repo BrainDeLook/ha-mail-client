@@ -165,14 +165,31 @@
     $('remote-button').hidden = !message.html || Boolean(message.remoteLoaded);
     if (message.html) {
       const dark = document.documentElement.classList.contains('dark');
-      frame.srcdoc = `<meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'none'; img-src http: https: data:; media-src http: https: data:; style-src 'unsafe-inline'; frame-src 'none'; form-action 'none'"><style>body{font:14px/1.6 -apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;color:${dark ? '#e8edf5' : '#293442'};background:${dark ? '#151d28' : '#fff'};margin:0;word-break:normal;overflow-wrap:normal}img,video{max-width:100%;height:auto}table{max-width:100%;border-collapse:collapse}td,th{padding:4px}a{color:${dark ? '#8bc2ff' : '#176bd7'}}</style>${message.html}`;
+      frame.srcdoc = `<meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'none'; img-src http: https: data:; media-src http: https: data:; style-src 'unsafe-inline'; frame-src 'none'; form-action 'none'"><style>html,body{overflow:hidden}body{font:14px/1.6 -apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;color:${dark ? '#e8edf5' : '#293442'};background:${dark ? '#151d28' : '#fff'};margin:0;word-break:normal;overflow-wrap:normal}img,video{max-width:100%;height:auto}table{max-width:100%;border-collapse:collapse}td,th{padding:4px}a{color:${dark ? '#8bc2ff' : '#176bd7'}}</style>${message.html}`;
       frame.addEventListener('load', () => {
         try {
-          const body = frame.contentDocument.body;
+          const doc = frame.contentDocument;
+          const body = doc.body;
           const resize = () => { frame.style.height = `${Math.max(200, body.scrollHeight + 30)}px`; };
           resize();
           frame.mailObserver = new ResizeObserver(resize);
           frame.mailObserver.observe(body);
+          doc.addEventListener('wheel', (event) => {
+            if (event.ctrlKey || event.metaKey || !event.deltaY) return;
+            event.preventDefault();
+            $('reading-pane').scrollTop += event.deltaY;
+          }, {passive: false});
+          let lastTouchY = null;
+          doc.addEventListener('touchstart', (event) => {
+            lastTouchY = event.touches.length === 1 ? event.touches[0].clientY : null;
+          }, {passive: true});
+          doc.addEventListener('touchmove', (event) => {
+            if (lastTouchY === null || event.touches.length !== 1) return;
+            const nextY = event.touches[0].clientY;
+            $('reading-pane').scrollTop += lastTouchY - nextY;
+            lastTouchY = nextY;
+            event.preventDefault();
+          }, {passive: false});
         } catch { frame.style.height = '700px'; }
       }, {once: true});
     } else {

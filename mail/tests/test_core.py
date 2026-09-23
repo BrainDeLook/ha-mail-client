@@ -152,8 +152,12 @@ class CoreTests(unittest.TestCase):
         app = Path(__file__).parents[1] / "app"
         styles = (app / "dark.css").read_text(encoding="utf-8")
         markup = (app / "index.html").read_text(encoding="utf-8")
+        script = (app / "app.js").read_text(encoding="utf-8")
         self.assertIn("position: fixed", styles)
+        self.assertIn("grid-template-rows: minmax(0, 1fr)", styles)
+        self.assertIn(".reading-pane { overflow-y: auto", styles)
         self.assertIn("#folders { min-height: 0; overflow-y: auto", styles)
+        self.assertIn("doc.addEventListener('wheel'", script)
         self.assertIn('sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"', markup)
         self.assertNotIn("allow-scripts", markup)
 
